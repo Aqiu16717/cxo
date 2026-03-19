@@ -117,10 +117,51 @@ static int parse_frontmatter_line(cxo_entry_t* entry, arena_t* arena,
     return 0;
 }
 
+/* Parse single frontmatter line, returns new content position */
+static char* parse_frontmatter_content_line(cxo_entry_t* entry, arena_t* arena,
+                                            char* content, int* in_fm)
+{
+    char* line_end;
+    char* line;
+    size_t line_len;
+    
+    line_end = strchr(content, '\n');
+    if (!line_end) {
+        *in_fm = 0;
+        return content;
+    }
+    
+    line_len = line_end - content;
+    
+    /* Check for closing --- */
+    if (line_len >= 3 && strncmp(content, "---", 3) == 0) {
+        *in_fm = 0;
+        return line_end + 1;
+    }
+    
+    /* Copy line for parsing */
+    line = arena_alloc(arena, line_len + 1);
+    memcpy(line, content, line_len);
+    line[line_len] = '\0';
+    
+    parse_frontmatter_line(entry, arena, line);
+    
+    return line_end + 1;
+}
+
+/* Skip frontmatter opening delimiter --- */
+static char* skip_frontmatter_opening(char* content)
+{
+    content += 3;
+    if (*content == '\r') {
+        content++;
+    }
+    return content + 1;
+}
+
 int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
                           char* content, char** content_start)
 {
-    char* line;
     int in_frontmatter;
     int line_count;
     
@@ -128,48 +169,17 @@ int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
     if (strncmp(content, "---\n", 4) != 0 && 
         strncmp(content, "---\r\n", 5) != 0) {
         *content_start = content;
-        return 0;  /* No frontmatter */
+        return 0;
     }
     
-    /* Skip opening --- */
-    content += 3;
-    if (*content == '\r') {
-        content++;
-    }
-    content++;
+    content = skip_frontmatter_opening(content);
     
     in_frontmatter = 1;
     line_count = 0;
     
-    /* Parse frontmatter lines */
     while (in_frontmatter && *content && line_count < 100) {
-        char* line_end;
-        size_t line_len;
-        
-        /* Find end of line */
-        line_end = strchr(content, '\n');
-        if (!line_end) {
-            break;
-        }
-        
-        line_len = line_end - content;
-        
-        /* Check for closing --- */
-        if (line_len >= 3 && strncmp(content, "---", 3) == 0) {
-            in_frontmatter = 0;
-            content = line_end + 1;
-            break;
-        }
-        
-        /* Copy line for parsing */
-        line = arena_alloc(arena, line_len + 1);
-        memcpy(line, content, line_len);
-        line[line_len] = '\0';
-        
-        /* Parse key-value pair */
-        parse_frontmatter_line(entry, arena, line);
-        
-        content = line_end + 1;
+        content = parse_frontmatter_content_line(entry, arena, content, 
+                                                  &in_frontmatter);
         line_count++;
     }
     
