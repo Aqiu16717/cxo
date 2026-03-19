@@ -53,3 +53,10 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Test binaries
+test_*
+!test_*.c
+
+# Generated site output
+public/
