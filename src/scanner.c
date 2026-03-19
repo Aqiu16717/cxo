@@ -10,10 +10,14 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
-#include <stdlib.h>
 #include "../include/cxo.h"
 
 #define MAX_PATH_LEN 4096
+#define MAX_ENTRIES 1024  /* Max blog entries, avoids realloc */
+
+/* Forward declaration */
+static int scan_directory(cxo_context_t* ctx, arena_t* arena,
+                          const char* dirpath, const char* lang);
 
 /* Check if filename ends with .md */
 static bool is_markdown_file(const char* filename)
@@ -37,7 +41,6 @@ static char* extract_slug(arena_t* arena, const char* filename)
     size_t len;
     
     len = strlen(filename);
-    /* Remove .md extension */
     slug = arena_alloc(arena, len - 2);
     if (!slug) {
         return NULL;
@@ -49,16 +52,83 @@ static char* extract_slug(arena_t* arena, const char* filename)
     return slug;
 }
 
+/* Initialize entries array with arena */
+static int init_entries_array(cxo_context_t* ctx, arena_t* arena)
+{
+    if (ctx->entries) {
+        return 0;  /* Already initialized */
+    }
+    
+    ctx->entries = arena_calloc_count(arena, MAX_ENTRIES, sizeof(cxo_entry_t*));
+    if (!ctx->entries) {
+        return -1;
+    }
+    
+    ctx->capacity = MAX_ENTRIES;
+    ctx->count = 0;
+    return 0;
+}
+
+/* Create entry from markdown file */
+static int create_entry_from_file(cxo_context_t* ctx, arena_t* arena,
+                                  const char* fullpath, const char* filename,
+                                  const char* lang)
+{
+    cxo_entry_t* entry;
+    char* slug;
+    
+    if (ctx->count >= ctx->capacity) {
+        fprintf(stderr, "Error: Too many entries (max %d)\n", MAX_ENTRIES);
+        return -1;
+    }
+    
+    entry = cxo_entry_create(arena);
+    if (!entry) {
+        fprintf(stderr, "Error: Failed to create entry\n");
+        return -1;
+    }
+    
+    slug = extract_slug(arena, filename);
+    if (!slug) {
+        return -1;
+    }
+    
+    entry->lang = arena_strdup(arena, lang);
+    entry->slug = slug;
+    entry->id = slug;
+    entry->md_content = arena_strdup(arena, fullpath);
+    
+    ctx->entries[ctx->count++] = entry;
+    return 0;
+}
+
+/* Process single directory entry */
+static void process_dirent(cxo_context_t* ctx, arena_t* arena,
+                           const char* dirpath, const char* name,
+                           const char* lang)
+{
+    struct stat st;
+    char fullpath[MAX_PATH_LEN];
+    
+    snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, name);
+    
+    if (stat(fullpath, &st) != 0) {
+        return;
+    }
+    
+    if (S_ISDIR(st.st_mode)) {
+        scan_directory(ctx, arena, fullpath, lang);
+    } else if (S_ISREG(st.st_mode) && is_markdown_file(name)) {
+        create_entry_from_file(ctx, arena, fullpath, name, lang);
+    }
+}
+
 /* Recursively scan directory for markdown files */
 static int scan_directory(cxo_context_t* ctx, arena_t* arena,
                           const char* dirpath, const char* lang)
 {
     DIR* dir;
     struct dirent* entry;
-    struct stat st;
-    char fullpath[MAX_PATH_LEN];
-    cxo_entry_t* cxo_entry;
-    char* slug;
     
     dir = opendir(dirpath);
     if (!dir) {
@@ -68,65 +138,35 @@ static int scan_directory(cxo_context_t* ctx, arena_t* arena,
     }
     
     while ((entry = readdir(dir)) != NULL) {
-        /* Skip . and .. */
+        /* Skip hidden files */
         if (entry->d_name[0] == '.') {
             continue;
         }
         
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", dirpath, entry->d_name);
-        
-        if (stat(fullpath, &st) != 0) {
-            continue;
-        }
-        
-        if (S_ISDIR(st.st_mode)) {
-            /* Recursively scan subdirectories */
-            scan_directory(ctx, arena, fullpath, lang);
-        } else if (S_ISREG(st.st_mode) && is_markdown_file(entry->d_name)) {
-            /* Process markdown file */
-            cxo_entry = cxo_entry_create(arena);
-            if (!cxo_entry) {
-                fprintf(stderr, "Error: Failed to create entry\n");
-                continue;
-            }
-            
-            cxo_entry->lang = arena_strdup(arena, lang);
-            slug = extract_slug(arena, entry->d_name);
-            cxo_entry->slug = slug;
-            cxo_entry->id = slug; /* Use slug as id by default */
-            
-            /* Grow entries array if needed */
-            if (ctx->count >= ctx->capacity) {
-                cxo_entry_t** new_entries;
-                size_t new_capacity;
-                
-                new_capacity = ctx->capacity == 0 ? 16 : ctx->capacity * 2;
-                new_entries = realloc(ctx->entries, 
-                                      new_capacity * sizeof(cxo_entry_t*));
-                if (!new_entries) {
-                    fprintf(stderr, "Error: Failed to grow entries array\n");
-                    continue;
-                }
-                
-                ctx->entries = new_entries;
-                ctx->capacity = new_capacity;
-            }
-            
-            /* Store full path for later parsing */
-            cxo_entry->md_content = arena_strdup(arena, fullpath);
-            ctx->entries[ctx->count++] = cxo_entry;
-        }
+        process_dirent(ctx, arena, dirpath, entry->d_name, lang);
     }
     
     closedir(dir);
     return 0;
 }
 
+/* Scan language subdirectory */
+static void scan_lang_dir(cxo_context_t* ctx, arena_t* arena,
+                          const char* content_dir, const char* lang)
+{
+    char path[MAX_PATH_LEN];
+    struct stat st;
+    
+    snprintf(path, sizeof(path), "%s/%s", content_dir, lang);
+    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        scan_directory(ctx, arena, path, lang);
+    }
+}
+
 /* Scan content directory for zh/ and en/ subdirectories */
 int cxo_scan_content(cxo_context_t* ctx, arena_t* arena,
                      const char* content_dir)
 {
-    char path[MAX_PATH_LEN];
     struct stat st;
     
     /* Check if content directory exists */
@@ -136,17 +176,15 @@ int cxo_scan_content(cxo_context_t* ctx, arena_t* arena,
         return -1;
     }
     
-    /* Scan Chinese content */
-    snprintf(path, sizeof(path), "%s/zh", content_dir);
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
-        scan_directory(ctx, arena, path, "zh");
+    /* Initialize entries array */
+    if (init_entries_array(ctx, arena) != 0) {
+        fprintf(stderr, "Error: Failed to init entries array\n");
+        return -1;
     }
     
-    /* Scan English content */
-    snprintf(path, sizeof(path), "%s/en", content_dir);
-    if (stat(path, &st) == 0 && S_ISDIR(st.st_mode)) {
-        scan_directory(ctx, arena, path, "en");
-    }
+    /* Scan both language directories */
+    scan_lang_dir(ctx, arena, content_dir, "zh");
+    scan_lang_dir(ctx, arena, content_dir, "en");
     
     return 0;
 }
