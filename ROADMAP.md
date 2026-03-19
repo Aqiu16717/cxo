@@ -46,14 +46,14 @@
 
 ---
 
-### Phase 4: 文章链接器 🚧
+### Phase 4: 文章链接器 ✅
 **分支**: `feature/linker`  
-**状态**: 待开发
+**状态**: 已完成
 
-- [ ] 哈希表实现
-- [ ] 根据 id 关联中英文文章
-- [ ] 设置 peer 指针
-- [ ] 链接器测试
+- [x] 哈希表实现
+- [x] 根据 id 关联中英文文章
+- [x] 设置 peer 指针
+- [x] 链接器测试
 
 **PR**: #4 - add entry linker for bilingual support
 
