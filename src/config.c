@@ -1,68 +1,50 @@
 /*
- * config.c - Configuration File Parser
+ * config.c - Configuration File Parser (TOML)
  * Copyright (c) 2026 Aq!u
  * MIT License
  */
 
 #include <stdio.h>
 #include <string.h>
-#include <ini.h>
+#include <toml.h>
 #include "../include/cxo.h"
 
-/* Config parsing context */
-typedef struct {
-    cxo_context_t* ctx;
-    arena_t* arena;
-} config_ctx_t;
-
-/* Strip quotes from value if present */
-static char* strip_quotes(arena_t* arena, const char* value)
+/* Helper to safely get string from TOML */
+static char* toml_string_or(toml_table_t* tab, const char* key,
+                             arena_t* arena, const char* def)
 {
-    size_t len;
-    char* result;
+    const char* val;
     
-    len = strlen(value);
-    if (len >= 2 && value[0] == '"' && value[len - 1] == '"') {
-        /* Remove surrounding quotes */
-        result = arena_alloc(arena, len - 1);
-        memcpy(result, value + 1, len - 2);
-        result[len - 2] = '\0';
-        return result;
-    }
-    return arena_strdup(arena, value);
-}
-
-/* INI handler callback */
-static int config_handler(void* user, const char* section,
-                          const char* name, const char* value)
-{
-    config_ctx_t* cfg;
-    char* clean_value;
-    
-    (void)section;
-    
-    cfg = (config_ctx_t*)user;
-    clean_value = strip_quotes(cfg->arena, value);
-    
-    if (strcmp(name, "title") == 0) {
-        cfg->ctx->site_title = clean_value;
-    } else if (strcmp(name, "description") == 0) {
-        cfg->ctx->site_description = clean_value;
-    } else if (strcmp(name, "base_url") == 0) {
-        cfg->ctx->base_url = clean_value;
-    } else if (strcmp(name, "theme") == 0) {
-        cfg->ctx->theme_path = clean_value;
+    val = toml_raw_in(tab, key);
+    if (!val) {
+        return arena_strdup(arena, def);
     }
     
-    return 1;
+    /* toml_raw_in returns quoted string, strip quotes */
+    if (val[0] == '"') {
+        size_t len;
+        char* result;
+        
+        len = strlen(val);
+        if (len >= 2 && val[len - 1] == '"') {
+            result = arena_alloc(arena, len - 1);
+            memcpy(result, val + 1, len - 2);
+            result[len - 2] = '\0';
+            return result;
+        }
+    }
+    
+    return arena_strdup(arena, val);
 }
 
-/* Load config from file */
+/* Load config from TOML file */
 int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
                     const char* config_path)
 {
-    config_ctx_t cfg;
-    int rc;
+    FILE* fp;
+    toml_table_t* conf;
+    toml_table_t* site;
+    char errbuf[256];
     
     /* Set defaults first */
     ctx->site_title = arena_strdup(arena, "CXO Blog");
@@ -70,14 +52,37 @@ int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
     ctx->base_url = arena_strdup(arena, "http://localhost");
     ctx->theme_path = arena_strdup(arena, "themes/default");
     
-    cfg.ctx = ctx;
-    cfg.arena = arena;
-    
-    rc = ini_parse(config_path, config_handler, &cfg);
-    if (rc < 0) {
-        /* File not found or error - defaults already set */
+    /* Open config file */
+    fp = fopen(config_path, "r");
+    if (!fp) {
+        /* File not found - use defaults */
         return CXO_OK;
     }
     
+    /* Parse TOML */
+    conf = toml_parse_file(fp, errbuf, sizeof(errbuf));
+    fclose(fp);
+    
+    if (!conf) {
+        fprintf(stderr, "Warning: Failed to parse %s: %s\n", config_path, errbuf);
+        return CXO_OK;  /* Use defaults on parse error */
+    }
+    
+    /* Read [site] section */
+    site = toml_table_in(conf, "site");
+    if (site) {
+        ctx->site_title = toml_string_or(site, "title", arena, ctx->site_title);
+        ctx->site_description = toml_string_or(site, "description", arena,
+                                                ctx->site_description);
+        ctx->base_url = toml_string_or(site, "base_url", arena, ctx->base_url);
+    }
+    
+    /* Read [theme] section */
+    site = toml_table_in(conf, "theme");
+    if (site) {
+        ctx->theme_path = toml_string_or(site, "path", arena, ctx->theme_path);
+    }
+    
+    toml_free(conf);
     return CXO_OK;
 }
