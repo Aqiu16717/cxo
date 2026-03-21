@@ -59,4 +59,8 @@ int cxo_link_entries(cxo_context_t* ctx, arena_t* arena);
 int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
                     const char* output_dir);
 
+/* Config - load configuration from file */
+int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
+                    const char* config_path);
+
 #endif /* CXO_H */

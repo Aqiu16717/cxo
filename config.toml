@@ -1,0 +1,4 @@
+title = "My Blog"
+description = "A minimalist static blog"
+base_url = "https://example.com"
+theme = "themes/default"
