@@ -1,6 +1,6 @@
 [site]
 title = "My Blog"
-description = "A minimalist static blog"
+description = "A minimalist blog powered by CXO"
 base_url = "https://example.com"
 
 [theme]

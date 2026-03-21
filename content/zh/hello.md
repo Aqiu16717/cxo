@@ -1,7 +1,7 @@
 ---
 id: hello
-title: 你好
-date: 2026-03-19
+title: Hello World
+date: 2026-03-21
 ---
 
-这是中文内容。
+Welcome to CXO!
