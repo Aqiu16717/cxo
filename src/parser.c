@@ -238,5 +238,5 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     /* Free libcmark allocated string */
     free(html);
     
-    return 0;
+    return CXO_OK;
 }

@@ -107,12 +107,51 @@ static void get_current_date(char* buf, size_t size)
     strftime(buf, size, "%Y-%m-%d", tm_info);
 }
 
+/* Create project directories */
+static int create_project_dirs(void)
+{
+    mkdir_p("content/zh");
+    mkdir_p("content/en");
+    mkdir_p("themes/default");
+    return CXO_OK;
+}
+
+/* Create sample post */
+static int create_sample_post(void)
+{
+    char date[16];
+    char post_content[512];
+    
+    get_current_date(date, sizeof(date));
+    snprintf(post_content, sizeof(post_content),
+             "---\n"
+             "id: hello\n"
+             "title: Hello World\n"
+             "date: %s\n"
+             "---\n"
+             "\n"
+             "Welcome to CXO!\n", date);
+    
+    write_file("content/zh/hello.md", post_content);
+    printf("Created: content/zh/hello.md\n");
+    return CXO_OK;
+}
+
+/* Create theme files */
+static int create_theme_files(void)
+{
+    write_file("themes/default/style.css", css_template);
+    printf("Created: themes/default/style.css\n");
+    
+    write_file("themes/default/post.html", html_template);
+    printf("Created: themes/default/post.html\n");
+    return CXO_OK;
+}
+
 /* Initialize new project */
 int cmd_init(const char* dir)
 {
     int rc;
-    char date[16];
-    char post_content[512];
     
     /* Create project directory */
     if (dir && strlen(dir) > 0 && strcmp(dir, ".") != 0) {
@@ -130,10 +169,7 @@ int cmd_init(const char* dir)
         printf("Creating project in current directory\n");
     }
     
-    /* Create directories */
-    mkdir_p("content/zh");
-    mkdir_p("content/en");
-    mkdir_p("themes/default");
+    create_project_dirs();
     
     /* Create config.toml */
     rc = write_file("config.toml", config_template);
@@ -143,26 +179,8 @@ int cmd_init(const char* dir)
     }
     printf("Created: config.toml\n");
     
-    /* Create theme files */
-    write_file("themes/default/style.css", css_template);
-    printf("Created: themes/default/style.css\n");
-    
-    write_file("themes/default/post.html", html_template);
-    printf("Created: themes/default/post.html\n");
-    
-    /* Create sample post */
-    get_current_date(date, sizeof(date));
-    snprintf(post_content, sizeof(post_content),
-             "---\n"
-             "id: hello\n"
-             "title: Hello World\n"
-             "date: %s\n"
-             "---\n"
-             "\n"
-             "Welcome to CXO!\n", date);
-    
-    write_file("content/zh/hello.md", post_content);
-    printf("Created: content/zh/hello.md\n");
+    create_theme_files();
+    create_sample_post();
     
     printf("\nProject initialized successfully!\n");
     printf("Run 'cxo build' to generate your site.\n");
