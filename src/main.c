@@ -15,12 +15,14 @@
 
 /* External command functions */
 extern int cmd_init(const char* dir);
+extern int cmd_new(const char* title);
 
 static void print_usage(const char* prog)
 {
     fprintf(stderr, "Usage: %s <command> [options]\n", prog);
     fprintf(stderr, "\nCommands:\n");
     fprintf(stderr, "  init [dir]   Initialize a new CXO project\n");
+    fprintf(stderr, "  new <title>  Create a new blog post\n");
     fprintf(stderr, "  build        Build the static site\n");
     fprintf(stderr, "  version      Show version information\n");
     fprintf(stderr, "  help         Show this help message\n");
@@ -132,6 +134,13 @@ int main(int argc, char* argv[])
         /* cxo init [dir] */
         const char* dir = (argc >= 3) ? argv[2] : ".";
         return cmd_init(dir);
+    } else if (strcmp(cmd, "new") == 0) {
+        /* cxo new <title> */
+        if (argc < 3) {
+            fprintf(stderr, "Error: Missing title\n");
+            return 1;
+        }
+        return cmd_new(argv[2]);
     } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "g") == 0) {
         return do_build();
     } else if (strcmp(cmd, "version") == 0 || strcmp(cmd, "-v") == 0) {

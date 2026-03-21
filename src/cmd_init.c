@@ -169,3 +169,81 @@ int cmd_init(const char* dir)
     
     return 0;
 }
+
+/* Generate slug from title */
+static void generate_slug(const char* title, char* slug, size_t size)
+{
+    size_t i;
+    size_t j;
+    
+    j = 0;
+    for (i = 0; title[i] && j < size - 1; i++) {
+        char c = title[i];
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+            slug[j++] = c;
+        } else if (c >= 'A' && c <= 'Z') {
+            slug[j++] = c + 32;
+        } else if ((c == ' ' || c == '-' || c == '_') && j > 0 && slug[j-1] != '-') {
+            slug[j++] = '-';
+        }
+    }
+    
+    if (j > 0 && slug[j-1] == '-') {
+        j--;
+    }
+    slug[j] = '\0';
+}
+
+/* Create new post */
+int cmd_new(const char* title)
+{
+    char slug[128];
+    char date[16];
+    char filename[256];
+    char content[512];
+    struct stat st;
+    
+    /* Check if in CXO project */
+    if (stat("config.toml", &st) != 0) {
+        fprintf(stderr, "Error: Not a CXO project (config.toml not found)\n");
+        fprintf(stderr, "Run 'cxo init' first.\n");
+        return 1;
+    }
+    
+    /* Ensure content/zh exists */
+    mkdir_p("content/zh");
+    
+    /* Generate slug */
+    generate_slug(title, slug, sizeof(slug));
+    if (strlen(slug) == 0) {
+        fprintf(stderr, "Error: Invalid title\n");
+        return 1;
+    }
+    
+    /* Check if exists */
+    get_current_date(date, sizeof(date));
+    snprintf(filename, sizeof(filename), "content/zh/%s.md", slug);
+    if (stat(filename, &st) == 0) {
+        fprintf(stderr, "Error: File already exists: %s\n", filename);
+        return 1;
+    }
+    
+    /* Create post */
+    snprintf(content, sizeof(content),
+             "---\n"
+             "id: %s\n"
+             "title: %s\n"
+             "date: %s\n"
+             "---\n"
+             "\n"
+             "Write your content here...\n",
+             slug, title, date);
+    
+    if (CXO_IS_ERR(write_file(filename, content))) {
+        fprintf(stderr, "Error: Failed to create %s\n", filename);
+        return 1;
+    }
+    
+    printf("Created: %s\n", filename);
+    return 0;
+}
