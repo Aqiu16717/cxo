@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <cmark.h>
+#include "../include/cmark.h"
 #include "../include/cxo.h"
 
 #define MAX_LINE_LEN 8192

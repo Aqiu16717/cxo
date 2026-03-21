@@ -11,8 +11,8 @@ LDFLAGS =
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
     # macOS
-    INCLUDES = -I. -I./include -I/opt/homebrew/include
-    LIBDIRS = -L/opt/homebrew/lib
+    INCLUDES = -I. -I./include
+    LIBDIRS =
 endif
 ifeq ($(UNAME_S),Linux)
     # Linux
@@ -20,12 +20,18 @@ ifeq ($(UNAME_S),Linux)
     LIBDIRS =
 endif
 
-# Libraries
-LIBS = -lcmark
+# Libraries (empty - all dependencies embedded)
+LIBS =
 
 # Source files
-SRCS = src/main.c src/config.c src/renderer.c src/linker.c \
-       src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
+CXO_SRCS = src/main.c src/config.c src/renderer.c src/linker.c \
+           src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
+
+# cmark sources (embedded, exclude main.c)
+CMARK_SRCS = $(filter-out src/cmark/main.c, $(wildcard src/cmark/*.c))
+
+# All sources
+SRCS = $(CXO_SRCS) $(CMARK_SRCS)
 
 # Object files
 OBJS = $(SRCS:.c=.o)
@@ -37,12 +43,15 @@ TEST_TARGETS = $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser \
                $(TEST_DIR)/test_linker $(TEST_DIR)/test_config \
                $(TEST_DIR)/test_renderer
 
+# cmark objects for tests
+CMARK_OBJS = $(filter-out src/cmark/main.o, $(CMARK_SRCS:.c=.o))
+
 # Default target
 all: $(TARGET)
 
 # Build main executable
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LIBDIRS) $(LIBS) $(LDFLAGS)
+	$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
 # Compile source files
 %.o: %.c
@@ -52,19 +61,21 @@ $(TARGET): $(OBJS)
 $(TEST_DIR)/test_scanner: $(TEST_DIR)/test_scanner.c src/scanner.c src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. -o $@ $^
 
-$(TEST_DIR)/test_parser: $(TEST_DIR)/test_parser.c src/parser.c src/scanner.c src/context.c src/arena.c
-	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
+$(TEST_DIR)/test_parser: $(TEST_DIR)/test_parser.c src/parser.c src/scanner.c \
+                         src/context.c src/arena.c $(CMARK_OBJS)
+	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^
 
 $(TEST_DIR)/test_linker: $(TEST_DIR)/test_linker.c src/linker.c src/parser.c src/scanner.c \
-             src/context.c src/arena.c
-	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
+                         src/context.c src/arena.c $(CMARK_OBJS)
+	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^
 
-$(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c src/arena.c src/toml.c
-	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS)
+$(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c \
+                         src/arena.c src/toml.c
+	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^
 
-$(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/linker.c src/parser.c \
-               src/scanner.c src/context.c src/arena.c
-	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
+$(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/linker.c \
+                           src/parser.c src/scanner.c src/context.c src/arena.c $(CMARK_OBJS)
+	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^
 
 # Run all tests
 test: $(TEST_TARGETS)
