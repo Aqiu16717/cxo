@@ -128,7 +128,7 @@ static int scan_directory(cxo_context_t* ctx, arena_t* arena,
                           const char* dirpath, const char* lang)
 {
     DIR* dir;
-    struct dirent* entry;
+    const struct dirent* entry;
     
     dir = opendir(dirpath);
     if (!dir) {
@@ -147,7 +147,7 @@ static int scan_directory(cxo_context_t* ctx, arena_t* arena,
     }
     
     closedir(dir);
-    return 0;
+    return CXO_OK;
 }
 
 /* Scan language subdirectory */

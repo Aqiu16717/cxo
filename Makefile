@@ -25,7 +25,7 @@ LDFLAGS =
 LIBS =
 
 # Source files
-CXO_SRCS = src/main.c src/config.c src/renderer.c src/linker.c \
+CXO_SRCS = src/main.c src/cmd_init.c src/config.c src/renderer.c src/linker.c \
            src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
 
 # cmark sources (embedded, exclude main.c)
@@ -103,5 +103,14 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)/usr/local/bin/$(TARGET)
 
+# Static analysis with cppcheck
+check:
+	@echo "Running cppcheck..."
+	@cppcheck --std=c11 --enable=all --suppress=missingIncludeSystem \
+		--suppress=unusedFunction --suppress=toomanyconfigs \
+		-I include src/ tests/
+	@echo "Running scan-build..."
+	@scan-build $(CC) $(CFLAGS) $(INCLUDES) -c src/main.c -o /dev/null 2>/dev/null || echo "scan-build: run 'brew install llvm' if not found"
+
 # Phony targets
-.PHONY: all test clean install uninstall
+.PHONY: all test clean install uninstall check

@@ -195,7 +195,7 @@ static int ensure_dir(const char* path)
 }
 
 /* Build language switch */
-static char* build_lang_switch(arena_t* arena, cxo_entry_t* entry)
+static char* build_lang_switch(arena_t* arena, const cxo_entry_t* entry)
 {
     char buf[256];
     const char* url;
@@ -264,7 +264,7 @@ static int copy_theme_assets(const char* theme_path, const char* output_dir)
 }
 
 /* Generate HTML */
-static char* generate_html(cxo_entry_t* entry, cxo_context_t* ctx,
+static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
                            arena_t* arena, const char* tmpl)
 {
     char* html;
