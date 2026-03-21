@@ -2,23 +2,24 @@
 # Copyright (c) 2026 Aq!u
 # MIT License
 
-# Compiler settings
-CC = gcc
-CFLAGS = -Wall -Wextra -std=c11 -O2
-LDFLAGS =
-
 # Platform detection
 UNAME_S := $(shell uname -s)
+
+# Compiler settings
 ifeq ($(UNAME_S),Darwin)
-    # macOS
+    # macOS - use clang
+    CC = clang
+    INCLUDES = -I. -I./include
+    LIBDIRS =
+else
+    # Linux and others - use gcc
+    CC = gcc
     INCLUDES = -I. -I./include
     LIBDIRS =
 endif
-ifeq ($(UNAME_S),Linux)
-    # Linux
-    INCLUDES = -I. -I./include
-    LIBDIRS =
-endif
+
+CFLAGS = -Wall -Wextra -std=c11 -O2
+LDFLAGS =
 
 # Libraries (empty - all dependencies embedded)
 LIBS =
