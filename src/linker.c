@@ -71,12 +71,12 @@ static cxo_entry_t* hash_table_insert(hash_entry_t** table, arena_t* arena,
 }
 
 /* Link two entries as bilingual pair */
-static void link_entry_pair(cxo_entry_t* a, cxo_entry_t* b, int* linked_count)
+static int link_entry_pair(cxo_entry_t* a, cxo_entry_t* b, int* linked_count)
 {
     if (strcmp(a->lang, b->lang) == 0) {
         fprintf(stderr, "Warning: duplicate id '%s' in same language '%s'\n",
                 a->id, a->lang);
-        return;
+        return CXO_ERR_DUPID;
     }
     
     a->peer = b;
@@ -85,6 +85,7 @@ static void link_entry_pair(cxo_entry_t* a, cxo_entry_t* b, int* linked_count)
     
     printf("Linked: %s (%s) <-> %s (%s)\n",
            a->slug, a->lang, b->slug, b->lang);
+    return CXO_OK;
 }
 
 /* Link entries by id - associate Chinese and English versions */
@@ -93,6 +94,7 @@ int cxo_link_entries(cxo_context_t* ctx, arena_t* arena)
     hash_entry_t* table[HASH_TABLE_SIZE] = {NULL};
     size_t i;
     int linked_count;
+    int rc;
     
     linked_count = 0;
     
@@ -112,11 +114,15 @@ int cxo_link_entries(cxo_context_t* ctx, arena_t* arena)
             continue;
         }
         
-        link_entry_pair(existing, entry, &linked_count);
+        rc = link_entry_pair(existing, entry, &linked_count);
+        if (CXO_IS_ERR(rc)) {
+            /* Continue processing other entries */
+            continue;
+        }
     }
     
     printf("Linked %d bilingual entry pairs\n", linked_count);
     
     /* Table memory will be freed with arena, no cleanup needed */
-    return 0;
+    return CXO_OK;
 }

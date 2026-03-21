@@ -31,7 +31,7 @@ int main(void)
     
     /* Scan first */
     ret = cxo_scan_content(ctx, arena, "content");
-    if (ret != 0 || ctx->count == 0) {
+    if (CXO_IS_ERR(ret) || ctx->count == 0) {
         printf("FAIL: no content found\n");
         arena_destroy(arena);
         return 1;
@@ -43,7 +43,7 @@ int main(void)
     printf("\nParsing entry: %s (%s)\n", entry->slug, entry->lang);
     
     ret = cxo_parse_markdown(entry, arena, NULL);
-    if (ret != 0) {
+    if (CXO_IS_ERR(ret)) {
         printf("FAIL: cxo_parse_markdown returned %d\n", ret);
         arena_destroy(arena);
         return 1;
@@ -80,7 +80,7 @@ int main(void)
     for (size_t i = 0; i < ctx->count; i++) {
         entry = ctx->entries[i];
         ret = cxo_parse_markdown(entry, arena, NULL);
-        if (ret != 0) {
+        if (CXO_IS_ERR(ret)) {
             printf("  FAIL: entry %zu (%s)\n", i, entry->slug);
         } else {
             printf("  OK: %s - \"%s\"\n", entry->slug, entry->title);
