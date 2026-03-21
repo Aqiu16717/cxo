@@ -11,21 +11,21 @@ LDFLAGS =
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
     # macOS
-    INCLUDES = -I. -I/opt/homebrew/include
+    INCLUDES = -I. -I./include -I/opt/homebrew/include
     LIBDIRS = -L/opt/homebrew/lib
 endif
 ifeq ($(UNAME_S),Linux)
     # Linux
-    INCLUDES = -I.
+    INCLUDES = -I. -I./include
     LIBDIRS =
 endif
 
 # Libraries
-LIBS = -lcmark -linih
+LIBS = -lcmark
 
 # Source files
 SRCS = src/main.c src/config.c src/renderer.c src/linker.c \
-       src/parser.c src/scanner.c src/context.c src/arena.c
+       src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
@@ -59,8 +59,8 @@ $(TEST_DIR)/test_linker: $(TEST_DIR)/test_linker.c src/linker.c src/parser.c src
              src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
 
-$(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c src/arena.c
-	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) -linih
+$(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c src/arena.c src/toml.c
+	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS)
 
 $(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/linker.c src/parser.c \
                src/scanner.c src/context.c src/arena.c
