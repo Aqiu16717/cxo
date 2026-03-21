@@ -32,7 +32,10 @@ OBJS = $(SRCS:.c=.o)
 
 # Targets
 TARGET = cxo
-TEST_TARGETS = test_scanner test_parser test_linker test_config test_renderer
+TEST_DIR = tests
+TEST_TARGETS = $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser \
+               $(TEST_DIR)/test_linker $(TEST_DIR)/test_config \
+               $(TEST_DIR)/test_renderer
 
 # Default target
 all: $(TARGET)
@@ -46,35 +49,36 @@ $(TARGET): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
 # Test binaries
-test_scanner: test_scanner.c src/scanner.c src/context.c src/arena.c
+$(TEST_DIR)/test_scanner: $(TEST_DIR)/test_scanner.c src/scanner.c src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. -o $@ $^
 
-test_parser: test_parser.c src/parser.c src/scanner.c src/context.c src/arena.c
+$(TEST_DIR)/test_parser: $(TEST_DIR)/test_parser.c src/parser.c src/scanner.c src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
 
-test_linker: test_linker.c src/linker.c src/parser.c src/scanner.c \
+$(TEST_DIR)/test_linker: $(TEST_DIR)/test_linker.c src/linker.c src/parser.c src/scanner.c \
              src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
 
-test_config: test_config.c src/config.c src/context.c src/arena.c
+$(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) -linih
 
-test_renderer: test_renderer.c src/renderer.c src/linker.c src/parser.c \
+$(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/linker.c src/parser.c \
                src/scanner.c src/context.c src/arena.c
 	$(CC) $(CFLAGS) -I. $(INCLUDES) -o $@ $^ $(LIBDIRS) $(LIBS)
 
 # Run all tests
 test: $(TEST_TARGETS)
 	@echo "Running tests..."
-	@./test_scanner && echo "scanner: PASS" || echo "scanner: FAIL"
-	@./test_parser && echo "parser: PASS" || echo "parser: FAIL"
-	@./test_linker && echo "linker: PASS" || echo "linker: FAIL"
-	@./test_config && echo "config: PASS" || echo "config: FAIL"
-	@./test_renderer && echo "renderer: PASS" || echo "renderer: FAIL"
+	@./$(TEST_DIR)/test_scanner && echo "scanner: PASS" || echo "scanner: FAIL"
+	@./$(TEST_DIR)/test_parser && echo "parser: PASS" || echo "parser: FAIL"
+	@./$(TEST_DIR)/test_linker && echo "linker: PASS" || echo "linker: FAIL"
+	@./$(TEST_DIR)/test_config && echo "config: PASS" || echo "config: FAIL"
+	@./$(TEST_DIR)/test_renderer && echo "renderer: PASS" || echo "renderer: FAIL"
 
 # Clean build artifacts
 clean:
-	rm -f $(OBJS) $(TARGET) $(TEST_TARGETS)
+	rm -f $(OBJS) $(TARGET)
+	rm -f $(TEST_DIR)/test_*
 	rm -rf public/
 
 # Install (optional)
