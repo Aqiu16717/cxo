@@ -49,49 +49,34 @@ static const char* default_template =
     "</body>\n"
     "</html>\n";
 
-/* Replace template variable {{name}} with value */
-static char* replace_var(arena_t* arena, const char* tmpl,
-                         const char* name, const char* value)
+/* Count occurrences of substring in string */
+static size_t count_substr(const char* str, const char* sub)
 {
-    char placeholder[64];
-    char* result;
-    char* pos;
-    char* last;
-    size_t result_len;
     size_t count;
-    size_t name_len;
-    size_t value_len;
-    size_t ph_len;
+    size_t sub_len;
     char* p;
     
-    /* Build placeholder {{name}} */
-    snprintf(placeholder, sizeof(placeholder), "{{%s}}", name);
-    ph_len = strlen(placeholder);
-    
-    value = value ? value : "";
-    value_len = strlen(value);
-    name_len = strlen(tmpl);
-    
-    /* Count occurrences */
     count = 0;
-    p = (char*)tmpl;
-    while ((p = strstr(p, placeholder)) != NULL) {
+    sub_len = strlen(sub);
+    p = (char*)str;
+    
+    while ((p = strstr(p, sub)) != NULL) {
         count++;
-        p += ph_len;
+        p += sub_len;
     }
     
-    if (count == 0) {
-        return arena_strdup(arena, tmpl);
-    }
+    return count;
+}
+
+/* Replace all occurrences in result buffer */
+static void do_replace(char* result, const char* tmpl,
+                       const char* placeholder, const char* value)
+{
+    char* pos;
+    char* last;
+    size_t ph_len;
     
-    /* Calculate result size */
-    result_len = name_len + count * (value_len - ph_len) + 1;
-    result = arena_alloc(arena, result_len);
-    if (!result) {
-        return NULL;
-    }
-    
-    /* Replace all occurrences */
+    ph_len = strlen(placeholder);
     pos = (char*)tmpl;
     last = (char*)tmpl;
     result[0] = '\0';
@@ -103,6 +88,39 @@ static char* replace_var(arena_t* arena, const char* tmpl,
         last = pos;
     }
     strcat(result, last);
+}
+
+/* Replace template variable {{name}} with value */
+static char* replace_var(arena_t* arena, const char* tmpl,
+                         const char* name, const char* value)
+{
+    char placeholder[64];
+    size_t ph_len;
+    size_t count;
+    size_t result_len;
+    char* result;
+    
+    /* Build placeholder {{name}} */
+    snprintf(placeholder, sizeof(placeholder), "{{%s}}", name);
+    ph_len = strlen(placeholder);
+    
+    value = value ? value : "";
+    
+    /* Count occurrences */
+    count = count_substr(tmpl, placeholder);
+    if (count == 0) {
+        return arena_strdup(arena, tmpl);
+    }
+    
+    /* Calculate result size */
+    result_len = strlen(tmpl) + count * (strlen(value) - ph_len) + 1;
+    result = arena_alloc(arena, result_len);
+    if (!result) {
+        return NULL;
+    }
+    
+    /* Replace all occurrences */
+    do_replace(result, tmpl, placeholder, value);
     
     return result;
 }
@@ -162,47 +180,43 @@ static char* build_lang_switch(arena_t* arena, cxo_entry_t* entry)
     return arena_strdup(arena, buf);
 }
 
-/* Render single entry to HTML file */
-static int render_entry(cxo_entry_t* entry, arena_t* arena,
-                        const char* output_dir)
+/* Get output subdirectory based on language */
+static const char* get_output_subdir(const char* lang)
 {
-    char path[MAX_OUTPUT_PATH];
+    return (strcmp(lang, "en") == 0) ? "en/posts" : "posts";
+}
+
+/* Build output path */
+static void build_output_path(char* buf, size_t size,
+                              const char* output_dir,
+                              const char* subdir, const char* slug)
+{
+    snprintf(buf, size, "%s/%s/%s.html", output_dir, subdir, slug);
+}
+
+/* Generate HTML from template with entry data */
+static char* generate_html(arena_t* arena, cxo_entry_t* entry)
+{
     char* html;
     char* tmpl;
     char* lang_switch;
-    const char* subdir;
-    FILE* fp;
-    int rc;
     
-    /* Determine output subdirectory */
-    if (strcmp(entry->lang, "en") == 0) {
-        subdir = "en/posts";
-    } else {
-        subdir = "posts";
-    }
-    
-    /* Create output directory */
-    snprintf(path, sizeof(path), "%s/%s", output_dir, subdir);
-    rc = ensure_dir(path);
-    if (CXO_IS_ERR(rc)) {
-        fprintf(stderr, "Error: Cannot create directory %s\n", path);
-        return rc;
-    }
-    
-    /* Generate language switch link */
     lang_switch = build_lang_switch(arena, entry);
-    
-    /* Replace template variables */
     tmpl = arena_strdup(arena, default_template);
+    
     html = replace_var(arena, tmpl, "title", entry->title);
     html = replace_var(arena, html, "date", entry->date);
     html = replace_var(arena, html, "lang", entry->lang);
     html = replace_var(arena, html, "content", entry->html_content);
     html = replace_var(arena, html, "nav_lang_switch", lang_switch);
     
-    /* Write output file */
-    snprintf(path, sizeof(path), "%s/%s/%s.html",
-             output_dir, subdir, entry->slug);
+    return html;
+}
+
+/* Write HTML to file */
+static int write_html_file(const char* path, const char* html)
+{
+    FILE* fp;
     
     fp = fopen(path, "w");
     if (!fp) {
@@ -212,9 +226,38 @@ static int render_entry(cxo_entry_t* entry, arena_t* arena,
     
     fprintf(fp, "%s", html);
     fclose(fp);
-    
-    printf("Generated: %s\n", path);
     return CXO_OK;
+}
+
+/* Render single entry to HTML file */
+static int render_entry(cxo_entry_t* entry, arena_t* arena,
+                        const char* output_dir)
+{
+    char path[MAX_OUTPUT_PATH];
+    const char* subdir;
+    char* html;
+    int rc;
+    
+    subdir = get_output_subdir(entry->lang);
+    
+    /* Create output directory */
+    snprintf(path, sizeof(path), "%s/%s", output_dir, subdir);
+    rc = ensure_dir(path);
+    if (CXO_IS_ERR(rc)) {
+        fprintf(stderr, "Error: Cannot create directory %s\n", path);
+        return rc;
+    }
+    
+    /* Generate and write HTML */
+    html = generate_html(arena, entry);
+    build_output_path(path, sizeof(path), output_dir, subdir, entry->slug);
+    
+    rc = write_html_file(path, html);
+    if (!CXO_IS_ERR(rc)) {
+        printf("Generated: %s\n", path);
+    }
+    
+    return rc;
 }
 
 /* Render entire site */
