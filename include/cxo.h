@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "arena.h"
+#include "cxo_error.h"
 
 /* Version info */
 #define CXO_VERSION "0.1.0"

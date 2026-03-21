@@ -29,7 +29,7 @@ int main(void)
     
     /* Test scanning */
     ret = cxo_scan_content(ctx, arena, "content");
-    if (ret != 0) {
+    if (CXO_IS_ERR(ret)) {
         printf("FAIL: cxo_scan_content returned %d\n", ret);
         arena_destroy(arena);
         return 1;

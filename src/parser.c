@@ -114,7 +114,7 @@ static int parse_frontmatter_line(cxo_entry_t* entry, arena_t* arena,
         entry->slug = arena_strdup(arena, value);
     }
     
-    return 0;
+    return CXO_OK;
 }
 
 /* Parse single frontmatter line, returns new content position */
@@ -184,7 +184,7 @@ int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
     }
     
     *content_start = content;
-    return 0;
+    return CXO_OK;
 }
 
 int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
@@ -204,7 +204,7 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     if (!file_content) {
         fprintf(stderr, "Error: Cannot read file %s\n", 
                 filepath ? filepath : entry->md_content);
-        return -1;
+        return CXO_ERR_NOFILE;
     }
     
     /* Keep original path, store content separately */
@@ -229,7 +229,7 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     html = cmark_markdown_to_html(body_start, strlen(body_start), 0);
     if (!html) {
         fprintf(stderr, "Error: Failed to parse markdown\n");
-        return -1;
+        return CXO_ERR_PARSE;
     }
     
     /* Copy HTML to arena */
