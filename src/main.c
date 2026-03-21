@@ -29,47 +29,34 @@ static void print_version(void)
     printf("MIT License\n");
 }
 
-static int cmd_build(void)
+/* Initialize build context */
+static int init_build_context(arena_t** arena, cxo_context_t** ctx)
 {
-    arena_t* arena;
-    cxo_context_t* ctx;
-    int ret;
-    
-    /* Initialize arena allocator */
-    arena = arena_create(DEFAULT_CHUNK_SIZE);
-    if (!arena) {
+    *arena = arena_create(DEFAULT_CHUNK_SIZE);
+    if (!*arena) {
         fprintf(stderr, "Error: Failed to create arena allocator\n");
         return 1;
     }
     
-    /* Create context */
-    ctx = cxo_context_create(arena);
-    if (!ctx) {
+    *ctx = cxo_context_create(*arena);
+    if (!*ctx) {
         fprintf(stderr, "Error: Failed to create context\n");
-        arena_destroy(arena);
+        arena_destroy(*arena);
         return 1;
     }
     
-    /* Load config (stub - uses defaults for now) */
-    ctx->base_url = arena_strdup(arena, "http://localhost");
-    ctx->theme_path = arena_strdup(arena, "themes/default");
-    ctx->site_title = arena_strdup(arena, "CXO Blog");
-    ctx->site_description = arena_strdup(arena, "A minimalist blog");
-    
-    /* Scan content directories */
-    printf("Scanning content...\n");
-    ret = cxo_scan_content(ctx, arena, "content");
-    if (CXO_IS_ERR(ret)) {
-        fprintf(stderr, "Error: Failed to scan content\n");
-        arena_destroy(arena);
-        return 1;
-    }
-    
-    printf("Found %zu entries\n", ctx->count);
+    return 0;
+}
+
+/* Process all entries: parse and link */
+static void process_entries(cxo_context_t* ctx, arena_t* arena)
+{
+    int ret;
+    size_t i;
     
     /* Parse all markdown files */
     printf("Parsing markdown...\n");
-    for (size_t i = 0; i < ctx->count; i++) {
+    for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
         ret = cxo_parse_markdown(entry, arena, NULL);
         if (CXO_IS_ERR(ret)) {
@@ -83,6 +70,33 @@ static int cmd_build(void)
     if (CXO_IS_ERR(ret)) {
         fprintf(stderr, "Warning: Failed to link some entries\n");
     }
+}
+
+static int cmd_build(void)
+{
+    arena_t* arena;
+    cxo_context_t* ctx;
+    int ret;
+    
+    if (init_build_context(&arena, &ctx) != 0) {
+        return 1;
+    }
+    
+    /* Load config (uses defaults if file not found) */
+    (void)cxo_load_config(ctx, arena, "config.toml");
+    
+    /* Scan content directories */
+    printf("Scanning content...\n");
+    ret = cxo_scan_content(ctx, arena, "content");
+    if (CXO_IS_ERR(ret)) {
+        fprintf(stderr, "Error: Failed to scan content\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    
+    printf("Found %zu entries\n", ctx->count);
+    
+    process_entries(ctx, arena);
     
     /* Render site */
     printf("Rendering site...\n");
