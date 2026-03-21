@@ -87,7 +87,7 @@ static int do_build(void)
     int ret;
     
     if (init_build_context(&arena, &ctx) != 0) {
-        return 1;
+        return CXO_ERR_NOMEM;
     }
     
     /* Load config (uses defaults if file not found) */
@@ -99,7 +99,7 @@ static int do_build(void)
     if (CXO_IS_ERR(ret)) {
         fprintf(stderr, "Error: Failed to scan content\n");
         arena_destroy(arena);
-        return 1;
+        return ret;
     }
     
     printf("Found %zu entries\n", ctx->count);
@@ -112,13 +112,13 @@ static int do_build(void)
     if (CXO_IS_ERR(ret)) {
         fprintf(stderr, "Error: Failed to render site\n");
         arena_destroy(arena);
-        return 1;
+        return ret;
     }
     
     printf("Build complete! Output: public/\n");
     
     arena_destroy(arena);
-    return 0;
+    return CXO_OK;
 }
 
 int main(int argc, char* argv[])
@@ -149,7 +149,8 @@ int main(int argc, char* argv[])
         int rc = cmd_clean();
         return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "g") == 0) {
-        return do_build();
+        int rc = do_build();
+        return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "version") == 0 || strcmp(cmd, "-v") == 0) {
         print_version();
         return 0;
