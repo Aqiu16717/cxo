@@ -75,10 +75,11 @@ test: $(TEST_TARGETS)
 	@./$(TEST_DIR)/test_config && echo "config: PASS" || echo "config: FAIL"
 	@./$(TEST_DIR)/test_renderer && echo "renderer: PASS" || echo "renderer: FAIL"
 
-# Clean build artifacts
+# Clean build artifacts (only binaries, not source files)
 clean:
 	rm -f $(OBJS) $(TARGET)
-	rm -f $(TEST_DIR)/test_*
+	rm -f $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser $(TEST_DIR)/test_linker
+	rm -f $(TEST_DIR)/test_config $(TEST_DIR)/test_renderer
 	rm -rf public/
 
 # Install (optional)
