@@ -50,11 +50,8 @@ static int cmd_build(void)
         return 1;
     }
     
-    /* Load config (stub - uses defaults for now) */
-    ctx->base_url = arena_strdup(arena, "http://localhost");
-    ctx->theme_path = arena_strdup(arena, "themes/default");
-    ctx->site_title = arena_strdup(arena, "CXO Blog");
-    ctx->site_description = arena_strdup(arena, "A minimalist blog");
+    /* Load config */
+    cxo_load_config(ctx, arena, "config.toml");
     
     /* Scan content directories */
     printf("Scanning content...\n");
