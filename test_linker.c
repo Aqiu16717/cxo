@@ -23,7 +23,7 @@ int main(void)
     
     /* Scan content */
     ret = cxo_scan_content(ctx, arena, "content");
-    if (ret != 0 || ctx->count < 2) {
+    if (CXO_IS_ERR(ret) || ctx->count < 2) {
         printf("FAIL: need at least 2 entries to test linking\n");
         arena_destroy(arena);
         return 1;
@@ -33,7 +33,7 @@ int main(void)
     /* Parse all entries first */
     for (size_t i = 0; i < ctx->count; i++) {
         ret = cxo_parse_markdown(ctx->entries[i], arena, NULL);
-        if (ret != 0) {
+        if (CXO_IS_ERR(ret)) {
             printf("FAIL: parse entry %zu\n", i);
             arena_destroy(arena);
             return 1;
@@ -52,7 +52,7 @@ int main(void)
     /* Test linking */
     printf("\nLinking entries...\n");
     ret = cxo_link_entries(ctx, arena);
-    if (ret != 0) {
+    if (CXO_IS_ERR(ret)) {
         printf("FAIL: cxo_link_entries returned %d\n", ret);
         arena_destroy(arena);
         return 1;

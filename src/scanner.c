@@ -56,17 +56,17 @@ static char* extract_slug(arena_t* arena, const char* filename)
 static int init_entries_array(cxo_context_t* ctx, arena_t* arena)
 {
     if (ctx->entries) {
-        return 0;  /* Already initialized */
+        return CXO_OK;
     }
     
     ctx->entries = arena_calloc_count(arena, MAX_ENTRIES, sizeof(cxo_entry_t*));
     if (!ctx->entries) {
-        return -1;
+        return CXO_ERR_NOMEM;
     }
     
     ctx->capacity = MAX_ENTRIES;
     ctx->count = 0;
-    return 0;
+    return CXO_OK;
 }
 
 /* Create entry from markdown file */
@@ -79,18 +79,18 @@ static int create_entry_from_file(cxo_context_t* ctx, arena_t* arena,
     
     if (ctx->count >= ctx->capacity) {
         fprintf(stderr, "Error: Too many entries (max %d)\n", MAX_ENTRIES);
-        return -1;
+        return CXO_ERR_TOOMANY;
     }
     
     entry = cxo_entry_create(arena);
     if (!entry) {
         fprintf(stderr, "Error: Failed to create entry\n");
-        return -1;
+        return CXO_ERR_NOMEM;
     }
     
     slug = extract_slug(arena, filename);
     if (!slug) {
-        return -1;
+        return CXO_ERR_NOMEM;
     }
     
     entry->lang = arena_strdup(arena, lang);
@@ -99,7 +99,7 @@ static int create_entry_from_file(cxo_context_t* ctx, arena_t* arena,
     entry->md_content = arena_strdup(arena, fullpath);
     
     ctx->entries[ctx->count++] = entry;
-    return 0;
+    return CXO_OK;
 }
 
 /* Process single directory entry */
@@ -134,7 +134,7 @@ static int scan_directory(cxo_context_t* ctx, arena_t* arena,
     if (!dir) {
         fprintf(stderr, "Warning: Cannot open directory %s: %s\n",
                 dirpath, strerror(errno));
-        return -1;
+        return CXO_ERR_SCAN;
     }
     
     while ((entry = readdir(dir)) != NULL) {
@@ -168,23 +168,25 @@ int cxo_scan_content(cxo_context_t* ctx, arena_t* arena,
                      const char* content_dir)
 {
     struct stat st;
+    int rc;
     
     /* Check if content directory exists */
     if (stat(content_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
         fprintf(stderr, "Error: Content directory %s does not exist\n",
                 content_dir);
-        return -1;
+        return CXO_ERR_NODIR;
     }
     
     /* Initialize entries array */
-    if (init_entries_array(ctx, arena) != 0) {
+    rc = init_entries_array(ctx, arena);
+    if (CXO_IS_ERR(rc)) {
         fprintf(stderr, "Error: Failed to init entries array\n");
-        return -1;
+        return rc;
     }
     
     /* Scan both language directories */
     scan_lang_dir(ctx, arena, content_dir, "zh");
     scan_lang_dir(ctx, arena, content_dir, "en");
     
-    return 0;
+    return CXO_OK;
 }
