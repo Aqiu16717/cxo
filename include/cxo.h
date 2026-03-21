@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include "arena.h"
+#include "cxo_error.h"
 
 /* Version info */
 #define CXO_VERSION "0.1.0"
@@ -53,5 +54,9 @@ int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
 
 /* Linker - associate bilingual entries by id */
 int cxo_link_entries(cxo_context_t* ctx, arena_t* arena);
+
+/* Renderer - generate HTML site */
+int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
+                    const char* output_dir);
 
 #endif /* CXO_H */
