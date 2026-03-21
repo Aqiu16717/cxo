@@ -159,7 +159,7 @@ static char* skip_frontmatter_opening(char* content)
     return content + 1;
 }
 
-int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
+static int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
                           char* content, char** content_start)
 {
     int in_frontmatter;
