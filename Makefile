@@ -103,5 +103,14 @@ install: $(TARGET)
 uninstall:
 	rm -f $(DESTDIR)/usr/local/bin/$(TARGET)
 
+# Static analysis with cppcheck
+check:
+	@echo "Running cppcheck..."
+	@cppcheck --std=c11 --enable=all --suppress=missingIncludeSystem \
+		--suppress=unusedFunction --suppress=toomanyconfigs \
+		-I include src/ tests/
+	@echo "Running scan-build..."
+	@scan-build $(CC) $(CFLAGS) $(INCLUDES) -c src/main.c -o /dev/null 2>/dev/null || echo "scan-build: run 'brew install llvm' if not found"
+
 # Phony targets
-.PHONY: all test clean install uninstall
+.PHONY: all test clean install uninstall check
