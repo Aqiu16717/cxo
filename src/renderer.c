@@ -13,43 +13,91 @@
 #include "../include/cxo.h"
 
 #define MAX_OUTPUT_PATH 4096
+#define MAX_TEMPLATE_SIZE (256 * 1024)
 
-/* Default HTML template */
-static const char* default_template =
+/* Fallback inline template */
+static const char* fallback_template =
     "<!DOCTYPE html>\n"
     "<html lang=\"{{lang}}\">\n"
     "<head>\n"
     "<meta charset=\"UTF-8\">\n"
-    "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n"
     "<title>{{title}}</title>\n"
-    "<style>\n"
-    "body{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Helvetica,Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333}\n"
-    "h1,h2,h3{color:#222}\n"
-    "nav{margin-bottom:30px;padding-bottom:20px;border-bottom:1px solid #eee}\n"
-    "nav a{color:#0366d6;text-decoration:none;margin-right:20px}\n"
-    ".meta{color:#666;font-size:0.9em;margin-bottom:20px}\n"
-    "footer{margin-top:40px;padding-top:20px;border-top:1px solid #eee;color:#666;font-size:0.9em}\n"
-    "</style>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
     "</head>\n"
     "<body>\n"
-    "<nav>\n"
-    "<a href=\"/\">Home</a>\n"
-    "{{nav_lang_switch}}\n"
-    "</nav>\n"
+    "<nav><a href=\"/\">{{site_title}}</a> {{nav_lang_switch}}</nav>\n"
     "<article>\n"
     "<h1>{{title}}</h1>\n"
     "<div class=\"meta\">{{date}}</div>\n"
-    "<div class=\"content\">\n"
-    "{{content}}\n"
-    "</div>\n"
+    "<div class=\"content\">{{content}}</div>\n"
     "</article>\n"
-    "<footer>\n"
-    "<p>Powered by CXO</p>\n"
-    "</footer>\n"
+    "<footer><p>{{site_description}}</p></footer>\n"
     "</body>\n"
     "</html>\n";
 
-/* Count occurrences of substring in string */
+/* Read file into arena */
+static char* read_file_to_arena(arena_t* arena, const char* path)
+{
+    FILE* fp;
+    long size;
+    char* content;
+    
+    fp = fopen(path, "r");
+    if (!fp) {
+        return NULL;
+    }
+    
+    fseek(fp, 0, SEEK_END);
+    size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    
+    if (size <= 0 || size > MAX_TEMPLATE_SIZE) {
+        fclose(fp);
+        return NULL;
+    }
+    
+    content = arena_alloc(arena, size + 1);
+    if (!content) {
+        fclose(fp);
+        return NULL;
+    }
+    
+    fread(content, 1, size, fp);
+    content[size] = '\0';
+    fclose(fp);
+    
+    return content;
+}
+
+/* Copy file */
+static int copy_file(const char* src, const char* dst)
+{
+    FILE* in;
+    FILE* out;
+    char buf[4096];
+    size_t n;
+    
+    in = fopen(src, "r");
+    if (!in) {
+        return CXO_ERR_IO;
+    }
+    
+    out = fopen(dst, "w");
+    if (!out) {
+        fclose(in);
+        return CXO_ERR_IO;
+    }
+    
+    while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+        fwrite(buf, 1, n, out);
+    }
+    
+    fclose(in);
+    fclose(out);
+    return CXO_OK;
+}
+
+/* Count occurrences */
 static size_t count_substr(const char* str, const char* sub)
 {
     size_t count;
@@ -64,11 +112,10 @@ static size_t count_substr(const char* str, const char* sub)
         count++;
         p += sub_len;
     }
-    
     return count;
 }
 
-/* Replace all occurrences in result buffer */
+/* Replace occurrences */
 static void do_replace(char* result, const char* tmpl,
                        const char* placeholder, const char* value)
 {
@@ -90,7 +137,7 @@ static void do_replace(char* result, const char* tmpl,
     strcat(result, last);
 }
 
-/* Replace template variable {{name}} with value */
+/* Replace template variable */
 static char* replace_var(arena_t* arena, const char* tmpl,
                          const char* name, const char* value)
 {
@@ -100,32 +147,26 @@ static char* replace_var(arena_t* arena, const char* tmpl,
     size_t result_len;
     char* result;
     
-    /* Build placeholder {{name}} */
     snprintf(placeholder, sizeof(placeholder), "{{%s}}", name);
     ph_len = strlen(placeholder);
-    
     value = value ? value : "";
     
-    /* Count occurrences */
     count = count_substr(tmpl, placeholder);
     if (count == 0) {
         return arena_strdup(arena, tmpl);
     }
     
-    /* Calculate result size */
     result_len = strlen(tmpl) + count * (strlen(value) - ph_len) + 1;
     result = arena_alloc(arena, result_len);
     if (!result) {
         return NULL;
     }
     
-    /* Replace all occurrences */
     do_replace(result, tmpl, placeholder, value);
-    
     return result;
 }
 
-/* Create directory recursively */
+/* Create directory */
 static int ensure_dir(const char* path)
 {
     struct stat st;
@@ -136,7 +177,6 @@ static int ensure_dir(const char* path)
         return S_ISDIR(st.st_mode) ? CXO_OK : CXO_ERR_IO;
     }
     
-    /* Try to create parent first */
     strncpy(parent, path, sizeof(parent) - 1);
     parent[sizeof(parent) - 1] = '\0';
     
@@ -151,11 +191,10 @@ static int ensure_dir(const char* path)
     if (mkdir(path, 0755) != 0 && errno != EEXIST) {
         return CXO_ERR_IO;
     }
-    
     return CXO_OK;
 }
 
-/* Generate language switch link */
+/* Build language switch */
 static char* build_lang_switch(arena_t* arena, cxo_entry_t* entry)
 {
     char buf[256];
@@ -176,45 +215,76 @@ static char* build_lang_switch(arena_t* arena, cxo_entry_t* entry)
     
     snprintf(buf, sizeof(buf), "<a href=\"%s%s.html\">%s</a>",
              url, entry->peer->slug, label);
-    
     return arena_strdup(arena, buf);
 }
 
-/* Get output subdirectory based on language */
+/* Get output subdirectory */
 static const char* get_output_subdir(const char* lang)
 {
     return (strcmp(lang, "en") == 0) ? "en/posts" : "posts";
 }
 
-/* Build output path */
-static void build_output_path(char* buf, size_t size,
-                              const char* output_dir,
-                              const char* subdir, const char* slug)
+/* Load template */
+static char* load_template(arena_t* arena, const char* theme_path)
 {
-    snprintf(buf, size, "%s/%s/%s.html", output_dir, subdir, slug);
+    char path[MAX_OUTPUT_PATH];
+    char* tmpl;
+    
+    snprintf(path, sizeof(path), "%s/post.html", theme_path);
+    tmpl = read_file_to_arena(arena, path);
+    if (!tmpl) {
+        return arena_strdup(arena, fallback_template);
+    }
+    return tmpl;
 }
 
-/* Generate HTML from template with entry data */
-static char* generate_html(arena_t* arena, cxo_entry_t* entry)
+/* Copy theme assets */
+static int copy_theme_assets(const char* theme_path, const char* output_dir)
+{
+    char src[MAX_OUTPUT_PATH];
+    char dst[MAX_OUTPUT_PATH];
+    int rc;
+    
+    /* Copy CSS */
+    snprintf(src, sizeof(src), "%s/style.css", theme_path);
+    snprintf(dst, sizeof(dst), "%s/style.css", output_dir);
+    
+    if (access(src, F_OK) == 0) {
+        rc = ensure_dir(output_dir);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
+        rc = copy_file(src, dst);
+        if (CXO_IS_ERR(rc)) {
+            fprintf(stderr, "Warning: Failed to copy style.css\n");
+        }
+    }
+    
+    return CXO_OK;
+}
+
+/* Generate HTML */
+static char* generate_html(cxo_entry_t* entry, cxo_context_t* ctx,
+                           arena_t* arena, const char* tmpl)
 {
     char* html;
-    char* tmpl;
     char* lang_switch;
     
     lang_switch = build_lang_switch(arena, entry);
-    tmpl = arena_strdup(arena, default_template);
     
     html = replace_var(arena, tmpl, "title", entry->title);
     html = replace_var(arena, html, "date", entry->date);
     html = replace_var(arena, html, "lang", entry->lang);
     html = replace_var(arena, html, "content", entry->html_content);
     html = replace_var(arena, html, "nav_lang_switch", lang_switch);
+    html = replace_var(arena, html, "site_title", ctx->site_title);
+    html = replace_var(arena, html, "site_description", ctx->site_description);
     
     return html;
 }
 
-/* Write HTML to file */
-static int write_html_file(const char* path, const char* html)
+/* Write HTML file */
+static int write_html(const char* path, const char* html)
 {
     FILE* fp;
     
@@ -229,9 +299,10 @@ static int write_html_file(const char* path, const char* html)
     return CXO_OK;
 }
 
-/* Render single entry to HTML file */
-static int render_entry(cxo_entry_t* entry, arena_t* arena,
-                        const char* output_dir)
+/* Render single entry */
+static int render_entry(cxo_entry_t* entry, cxo_context_t* ctx,
+                        arena_t* arena, const char* output_dir,
+                        const char* tmpl)
 {
     char path[MAX_OUTPUT_PATH];
     const char* subdir;
@@ -240,7 +311,6 @@ static int render_entry(cxo_entry_t* entry, arena_t* arena,
     
     subdir = get_output_subdir(entry->lang);
     
-    /* Create output directory */
     snprintf(path, sizeof(path), "%s/%s", output_dir, subdir);
     rc = ensure_dir(path);
     if (CXO_IS_ERR(rc)) {
@@ -248,15 +318,14 @@ static int render_entry(cxo_entry_t* entry, arena_t* arena,
         return rc;
     }
     
-    /* Generate and write HTML */
-    html = generate_html(arena, entry);
-    build_output_path(path, sizeof(path), output_dir, subdir, entry->slug);
+    html = generate_html(entry, ctx, arena, tmpl);
+    snprintf(path, sizeof(path), "%s/%s/%s.html",
+             output_dir, subdir, entry->slug);
     
-    rc = write_html_file(path, html);
+    rc = write_html(path, html);
     if (!CXO_IS_ERR(rc)) {
         printf("Generated: %s\n", path);
     }
-    
     return rc;
 }
 
@@ -267,17 +336,21 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     size_t i;
     int rc;
     int success;
+    char* tmpl;
     
-    /* Create output directory */
     rc = ensure_dir(output_dir);
     if (CXO_IS_ERR(rc)) {
         fprintf(stderr, "Error: Cannot create output directory\n");
         return rc;
     }
     
+    /* Load template and copy assets */
+    tmpl = load_template(arena, ctx->theme_path);
+    copy_theme_assets(ctx->theme_path, output_dir);
+    
     success = 0;
     for (i = 0; i < ctx->count; i++) {
-        rc = render_entry(ctx->entries[i], arena, output_dir);
+        rc = render_entry(ctx->entries[i], ctx, arena, output_dir, tmpl);
         if (!CXO_IS_ERR(rc)) {
             success++;
         }
