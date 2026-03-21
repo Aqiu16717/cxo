@@ -119,11 +119,11 @@ int cmd_init(const char* dir)
         rc = mkdir_p(dir);
         if (CXO_IS_ERR(rc)) {
             fprintf(stderr, "Error: Cannot create directory %s\n", dir);
-            return 1;
+            return CXO_ERR_IO;
         }
         if (chdir(dir) != 0) {
             fprintf(stderr, "Error: Cannot enter directory %s\n", dir);
-            return 1;
+            return CXO_ERR_IO;
         }
         printf("Creating project in: %s\n", dir);
     } else {
@@ -139,7 +139,7 @@ int cmd_init(const char* dir)
     rc = write_file("config.toml", config_template);
     if (CXO_IS_ERR(rc)) {
         fprintf(stderr, "Error: Failed to create config.toml\n");
-        return 1;
+        return rc;
     }
     printf("Created: config.toml\n");
     
@@ -167,7 +167,7 @@ int cmd_init(const char* dir)
     printf("\nProject initialized successfully!\n");
     printf("Run 'cxo build' to generate your site.\n");
     
-    return 0;
+    return CXO_OK;
 }
 
 /* Generate slug from title */
@@ -202,12 +202,13 @@ int cmd_new(const char* title)
     char filename[256];
     char content[512];
     struct stat st;
+    int rc;
     
     /* Check if in CXO project */
     if (stat("config.toml", &st) != 0) {
         fprintf(stderr, "Error: Not a CXO project (config.toml not found)\n");
         fprintf(stderr, "Run 'cxo init' first.\n");
-        return 1;
+        return CXO_ERR_IO;
     }
     
     /* Ensure content/zh exists */
@@ -217,7 +218,7 @@ int cmd_new(const char* title)
     generate_slug(title, slug, sizeof(slug));
     if (strlen(slug) == 0) {
         fprintf(stderr, "Error: Invalid title\n");
-        return 1;
+        return CXO_ERR_INVAL;
     }
     
     /* Check if exists */
@@ -225,7 +226,7 @@ int cmd_new(const char* title)
     snprintf(filename, sizeof(filename), "content/zh/%s.md", slug);
     if (stat(filename, &st) == 0) {
         fprintf(stderr, "Error: File already exists: %s\n", filename);
-        return 1;
+        return CXO_ERR_IO;
     }
     
     /* Create post */
@@ -239,11 +240,21 @@ int cmd_new(const char* title)
              "Write your content here...\n",
              slug, title, date);
     
-    if (CXO_IS_ERR(write_file(filename, content))) {
+    rc = write_file(filename, content);
+    if (CXO_IS_ERR(rc)) {
         fprintf(stderr, "Error: Failed to create %s\n", filename);
-        return 1;
+        return rc;
     }
     
     printf("Created: %s\n", filename);
-    return 0;
+    return CXO_OK;
+}
+
+/* Clean build output */
+int cmd_clean(void)
+{
+    printf("Cleaning public/ directory...\n");
+    system("rm -rf public/*");
+    printf("Clean complete.\n");
+    return CXO_OK;
 }

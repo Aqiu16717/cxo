@@ -16,6 +16,7 @@
 /* External command functions */
 extern int cmd_init(const char* dir);
 extern int cmd_new(const char* title);
+extern int cmd_clean(void);
 
 static void print_usage(const char* prog)
 {
@@ -24,6 +25,7 @@ static void print_usage(const char* prog)
     fprintf(stderr, "  init [dir]   Initialize a new CXO project\n");
     fprintf(stderr, "  new <title>  Create a new blog post\n");
     fprintf(stderr, "  build        Build the static site\n");
+    fprintf(stderr, "  clean        Clean build output\n");
     fprintf(stderr, "  version      Show version information\n");
     fprintf(stderr, "  help         Show this help message\n");
 }
@@ -133,14 +135,19 @@ int main(int argc, char* argv[])
     if (strcmp(cmd, "init") == 0) {
         /* cxo init [dir] */
         const char* dir = (argc >= 3) ? argv[2] : ".";
-        return cmd_init(dir);
+        int rc = cmd_init(dir);
+        return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "new") == 0) {
         /* cxo new <title> */
         if (argc < 3) {
             fprintf(stderr, "Error: Missing title\n");
             return 1;
         }
-        return cmd_new(argv[2]);
+        int rc = cmd_new(argv[2]);
+        return CXO_IS_ERR(rc) ? 1 : 0;
+    } else if (strcmp(cmd, "clean") == 0) {
+        int rc = cmd_clean();
+        return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "g") == 0) {
         return do_build();
     } else if (strcmp(cmd, "version") == 0 || strcmp(cmd, "-v") == 0) {
