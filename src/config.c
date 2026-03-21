@@ -10,7 +10,7 @@
 #include "../include/cxo.h"
 
 /* Helper to safely get string from TOML */
-static char* toml_string_or(toml_table_t* tab, const char* key,
+static char* toml_string_or(const toml_table_t* tab, const char* key,
                              arena_t* arena, const char* def)
 {
     const char* val;
