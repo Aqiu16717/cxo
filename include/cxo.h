@@ -49,8 +49,6 @@ int cxo_scan_content(cxo_context_t* ctx, arena_t* arena,
 /* Parser - parse markdown and frontmatter */
 int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
                        const char* filepath);
-int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
-                          char* content, char** content_start);
 
 /* Linker - associate bilingual entries by id */
 int cxo_link_entries(cxo_context_t* ctx, arena_t* arena);

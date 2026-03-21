@@ -13,13 +13,21 @@
 
 #define DEFAULT_CHUNK_SIZE (1024 * 1024)  /* 1MB */
 
+/* External command functions */
+extern int cmd_init(const char* dir);
+extern int cmd_new(const char* title);
+extern int cmd_clean(void);
+
 static void print_usage(const char* prog)
 {
     fprintf(stderr, "Usage: %s <command> [options]\n", prog);
     fprintf(stderr, "\nCommands:\n");
-    fprintf(stderr, "  build      Build the static site\n");
-    fprintf(stderr, "  version    Show version information\n");
-    fprintf(stderr, "  help       Show this help message\n");
+    fprintf(stderr, "  init [dir]   Initialize a new CXO project\n");
+    fprintf(stderr, "  new <title>  Create a new blog post\n");
+    fprintf(stderr, "  build        Build the static site\n");
+    fprintf(stderr, "  clean        Clean build output\n");
+    fprintf(stderr, "  version      Show version information\n");
+    fprintf(stderr, "  help         Show this help message\n");
 }
 
 static void print_version(void)
@@ -72,14 +80,14 @@ static void process_entries(cxo_context_t* ctx, arena_t* arena)
     }
 }
 
-static int cmd_build(void)
+static int do_build(void)
 {
     arena_t* arena;
     cxo_context_t* ctx;
     int ret;
     
     if (init_build_context(&arena, &ctx) != 0) {
-        return 1;
+        return CXO_ERR_NOMEM;
     }
     
     /* Load config (uses defaults if file not found) */
@@ -91,7 +99,7 @@ static int cmd_build(void)
     if (CXO_IS_ERR(ret)) {
         fprintf(stderr, "Error: Failed to scan content\n");
         arena_destroy(arena);
-        return 1;
+        return ret;
     }
     
     printf("Found %zu entries\n", ctx->count);
@@ -104,13 +112,13 @@ static int cmd_build(void)
     if (CXO_IS_ERR(ret)) {
         fprintf(stderr, "Error: Failed to render site\n");
         arena_destroy(arena);
-        return 1;
+        return ret;
     }
     
     printf("Build complete! Output: public/\n");
     
     arena_destroy(arena);
-    return 0;
+    return CXO_OK;
 }
 
 int main(int argc, char* argv[])
@@ -124,8 +132,25 @@ int main(int argc, char* argv[])
     
     cmd = argv[1];
     
-    if (strcmp(cmd, "build") == 0) {
-        return cmd_build();
+    if (strcmp(cmd, "init") == 0) {
+        /* cxo init [dir] */
+        const char* dir = (argc >= 3) ? argv[2] : ".";
+        int rc = cmd_init(dir);
+        return CXO_IS_ERR(rc) ? 1 : 0;
+    } else if (strcmp(cmd, "new") == 0) {
+        /* cxo new <title> */
+        if (argc < 3) {
+            fprintf(stderr, "Error: Missing title\n");
+            return 1;
+        }
+        int rc = cmd_new(argv[2]);
+        return CXO_IS_ERR(rc) ? 1 : 0;
+    } else if (strcmp(cmd, "clean") == 0) {
+        int rc = cmd_clean();
+        return CXO_IS_ERR(rc) ? 1 : 0;
+    } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "g") == 0) {
+        int rc = do_build();
+        return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "version") == 0 || strcmp(cmd, "-v") == 0) {
         print_version();
         return 0;
