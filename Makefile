@@ -25,7 +25,7 @@ LDFLAGS =
 LIBS =
 
 # Source files
-CXO_SRCS = src/main.c src/config.c src/renderer.c src/linker.c \
+CXO_SRCS = src/main.c src/cmd_init.c src/config.c src/renderer.c src/linker.c \
            src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
 
 # cmark sources (embedded, exclude main.c)

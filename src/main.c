@@ -13,13 +13,17 @@
 
 #define DEFAULT_CHUNK_SIZE (1024 * 1024)  /* 1MB */
 
+/* External command functions */
+extern int cmd_init(const char* dir);
+
 static void print_usage(const char* prog)
 {
     fprintf(stderr, "Usage: %s <command> [options]\n", prog);
     fprintf(stderr, "\nCommands:\n");
-    fprintf(stderr, "  build      Build the static site\n");
-    fprintf(stderr, "  version    Show version information\n");
-    fprintf(stderr, "  help       Show this help message\n");
+    fprintf(stderr, "  init [dir]   Initialize a new CXO project\n");
+    fprintf(stderr, "  build        Build the static site\n");
+    fprintf(stderr, "  version      Show version information\n");
+    fprintf(stderr, "  help         Show this help message\n");
 }
 
 static void print_version(void)
@@ -72,7 +76,7 @@ static void process_entries(cxo_context_t* ctx, arena_t* arena)
     }
 }
 
-static int cmd_build(void)
+static int do_build(void)
 {
     arena_t* arena;
     cxo_context_t* ctx;
@@ -124,8 +128,12 @@ int main(int argc, char* argv[])
     
     cmd = argv[1];
     
-    if (strcmp(cmd, "build") == 0) {
-        return cmd_build();
+    if (strcmp(cmd, "init") == 0) {
+        /* cxo init [dir] */
+        const char* dir = (argc >= 3) ? argv[2] : ".";
+        return cmd_init(dir);
+    } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "g") == 0) {
+        return do_build();
     } else if (strcmp(cmd, "version") == 0 || strcmp(cmd, "-v") == 0) {
         print_version();
         return 0;
