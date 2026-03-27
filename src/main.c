@@ -17,17 +17,19 @@
 extern int cmd_init(const char* dir);
 extern int cmd_new(const char* title);
 extern int cmd_clean(void);
+extern int cmd_serve(int port, int rebuild);
 
 static void print_usage(const char* prog)
 {
     fprintf(stderr, "Usage: %s <command> [options]\n", prog);
     fprintf(stderr, "\nCommands:\n");
-    fprintf(stderr, "  init [dir]   Initialize a new CXO project\n");
-    fprintf(stderr, "  new <title>  Create a new blog post\n");
-    fprintf(stderr, "  build        Build the static site\n");
-    fprintf(stderr, "  clean        Clean build output\n");
-    fprintf(stderr, "  version      Show version information\n");
-    fprintf(stderr, "  help         Show this help message\n");
+    fprintf(stderr, "  init [dir]     Initialize a new CXO project\n");
+    fprintf(stderr, "  new <title>    Create a new blog post\n");
+    fprintf(stderr, "  build          Build the static site\n");
+    fprintf(stderr, "  serve [port]   Start development server (default: 8080)\n");
+    fprintf(stderr, "  clean          Clean build output\n");
+    fprintf(stderr, "  version        Show version information\n");
+    fprintf(stderr, "  help           Show this help message\n");
 }
 
 static void print_version(void)
@@ -144,6 +146,14 @@ int main(int argc, char* argv[])
             return 1;
         }
         int rc = cmd_new(argv[2]);
+        return CXO_IS_ERR(rc) ? 1 : 0;
+    } else if (strcmp(cmd, "serve") == 0) {
+        int port = (argc >= 3) ? atoi(argv[2]) : 8080;
+        if (port <= 0 || port > 65535) {
+            fprintf(stderr, "Error: Invalid port number\n");
+            return 1;
+        }
+        int rc = cmd_serve(port, 0);
         return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "clean") == 0) {
         int rc = cmd_clean();

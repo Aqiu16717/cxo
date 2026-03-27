@@ -1,0 +1,587 @@
+/*
+ * cmd_serve.c - Development HTTP server for CXO
+ * Copyright (c) 2026 Aq!u
+ * MIT License
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/socket.h>
+#include <sys/select.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <errno.h>
+#include <signal.h>
+#include <time.h>
+#include "../include/cxo.h"
+
+#define DEFAULT_PORT 8080
+#define DEFAULT_ROOT "public"
+#define BUFFER_SIZE 8192
+#define MAX_PATH 512
+
+/* MIME type mapping */
+typedef struct {
+    const char* ext;
+    const char* mime;
+} mime_map_t;
+
+static const mime_map_t mime_types[] = {
+    {".html", "text/html; charset=utf-8"},
+    {".htm", "text/html; charset=utf-8"},
+    {".css", "text/css; charset=utf-8"},
+    {".js", "application/javascript"},
+    {".json", "application/json"},
+    {".png", "image/png"},
+    {".jpg", "image/jpeg"},
+    {".jpeg", "image/jpeg"},
+    {".gif", "image/gif"},
+    {".svg", "image/svg+xml"},
+    {".ico", "image/x-icon"},
+    {".txt", "text/plain"},
+    {".xml", "application/xml"},
+    {".md", "text/markdown"},
+    {NULL, NULL}
+};
+
+/* Server state */
+static volatile sig_atomic_t server_running = 1;
+
+/* Signal handler for graceful shutdown */
+static void signal_handler(int sig)
+{
+    (void)sig;
+    server_running = 0;
+}
+
+/* Get MIME type from file extension */
+static const char* get_mime_type(const char* path)
+{
+    const char* dot;
+    size_t i;
+    
+    dot = strrchr(path, '.');
+    if (!dot) {
+        return "application/octet-stream";
+    }
+    
+    for (i = 0; mime_types[i].ext; i++) {
+        if (strcasecmp(dot, mime_types[i].ext) == 0) {
+            return mime_types[i].mime;
+        }
+    }
+    
+    return "application/octet-stream";
+}
+
+/* URL decode */
+static void url_decode(char* dst, const char* src, size_t size)
+{
+    size_t i;
+    size_t j;
+    
+    j = 0;
+    for (i = 0; src[i] && j < size - 1; i++) {
+        if (src[i] == '%' && src[i + 1] && src[i + 2]) {
+            unsigned int c;
+            if (sscanf(src + i + 1, "%2x", &c) == 1) {
+                dst[j++] = (char)c;
+                i += 2;
+            } else {
+                dst[j++] = src[i];
+            }
+        } else if (src[i] == '+') {
+            dst[j++] = ' ';
+        } else {
+            dst[j++] = src[i];
+        }
+    }
+    dst[j] = '\0';
+}
+
+/* Check if path contains directory traversal
+ * Looks for ".." followed by path separator or end of string
+ * Also checks for ".." at start of path or after "/"
+ */
+static int has_traversal(const char* path)
+{
+    const char* p;
+    
+    p = path;
+    while (*p) {
+        /* Check for ".." at start or after "/" */
+        if (p[0] == '.') {
+            if (p[1] == '.') {
+                /* Check if ".." is at end or followed by separator */
+                if (p[2] == '\0' || p[2] == '/') {
+                    return 1;
+                }
+            }
+        }
+        p++;
+    }
+    return 0;
+}
+
+/* Forward declarations */
+static void send_response(int client, int status, const char* status_text,
+                          const char* content_type, const char* body,
+                          size_t body_len);
+static void send_file_response_full(int client, const char* path, int is_head);
+static void send_directory_listing(int client, const char* root, const char* uri);
+
+/* Send HTTP response */
+static void send_response(int client, int status, const char* status_text,
+                          const char* content_type, const char* body,
+                          size_t body_len)
+{
+    char header[512];
+    time_t now;
+    struct tm* tm_info;
+    char date[64];
+    ssize_t sent;
+    size_t total;
+    
+    time(&now);
+    tm_info = gmtime(&now);
+    strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+    
+    snprintf(header, sizeof(header),
+             "HTTP/1.1 %d %s\r\n"
+             "Content-Type: %s\r\n"
+             "Content-Length: %zu\r\n"
+             "Date: %s\r\n"
+             "Connection: close\r\n"
+             "\r\n",
+             status, status_text, content_type, body_len, date);
+    
+    /* Send header with retry */
+    total = 0;
+    while (total < strlen(header)) {
+        sent = send(client, header + total, strlen(header) - total, 0);
+        if (sent < 0) {
+            return;
+        }
+        total += sent;
+    }
+    
+    /* Send body with retry */
+    if (body && body_len > 0) {
+        total = 0;
+        while (total < body_len) {
+            sent = send(client, body + total, body_len - total, 0);
+            if (sent < 0) {
+                return;
+            }
+            total += sent;
+        }
+    }
+}
+
+/* Forward declarations */
+/* Send file response
+ * If is_head is 1, only send headers (for HEAD request)
+ */
+static void send_file_response_full(int client, const char* path, int is_head)
+{
+    int fd;
+    struct stat st;
+    char header[512];
+    char buf[BUFFER_SIZE];
+    ssize_t n;
+    ssize_t sent;
+    size_t total;
+    time_t now;
+    struct tm* tm_info;
+    char date[64];
+    const char* mime;
+    
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        send_response(client, 404, "Not Found", "text/html",
+                      "<h1>404 Not Found</h1>", 22);
+        return;
+    }
+    
+    if (fstat(fd, &st) < 0) {
+        close(fd);
+        send_response(client, 500, "Internal Server Error", "text/html",
+                      "<h1>500 Internal Server Error</h1>", 33);
+        return;
+    }
+    
+    if (S_ISDIR(st.st_mode)) {
+        close(fd);
+        send_response(client, 403, "Forbidden", "text/html",
+                      "<h1>403 Forbidden</h1>", 22);
+        return;
+    }
+    
+    mime = get_mime_type(path);
+    
+    time(&now);
+    tm_info = gmtime(&now);
+    strftime(date, sizeof(date), "%a, %d %b %Y %H:%M:%S GMT", tm_info);
+    
+    snprintf(header, sizeof(header),
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Type: %s\r\n"
+             "Content-Length: %lld\r\n"
+             "Date: %s\r\n"
+             "Connection: close\r\n"
+             "\r\n",
+             mime, (long long)st.st_size, date);
+    
+    /* Send header */
+    total = 0;
+    while (total < strlen(header)) {
+        sent = send(client, header + total, strlen(header) - total, 0);
+        if (sent < 0) {
+            close(fd);
+            return;
+        }
+        total += sent;
+    }
+    
+    /* For HEAD request, don't send body */
+    if (is_head) {
+        close(fd);
+        return;
+    }
+    
+    /* Send file content */
+    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+        total = 0;
+        while (total < (size_t)n) {
+            sent = send(client, buf + total, n - total, 0);
+            if (sent < 0) {
+                close(fd);
+                return;
+            }
+            total += sent;
+        }
+    }
+    
+    close(fd);
+}
+
+/* Wrapper for normal GET requests (inline to avoid unused warning) */
+#define send_file_response(client, path) send_file_response_full((client), (path), 0)
+
+/* Handle single HTTP request */
+static void handle_request(int client, const char* root)
+{
+    char buf[BUFFER_SIZE];
+    char method[16];
+    char uri[MAX_PATH];
+    char decoded_uri[MAX_PATH];
+    char path[MAX_PATH];
+    char* query;
+    ssize_t n;
+    struct stat st;
+    
+    n = recv(client, buf, sizeof(buf) - 1, 0);
+    if (n <= 0) {
+        return;
+    }
+    buf[n] = '\0';
+    
+    /* Parse request line */
+    if (sscanf(buf, "%15s %511s", method, uri) != 2) {
+        send_response(client, 400, "Bad Request", "text/html",
+                      "<h1>400 Bad Request</h1>", 24);
+        return;
+    }
+    
+    /* Only support GET and HEAD */
+    int is_head = (strcmp(method, "HEAD") == 0);
+    if (strcmp(method, "GET") != 0 && !is_head) {
+        send_response(client, 405, "Method Not Allowed", "text/html",
+                      "<h1>405 Method Not Allowed</h1>", 30);
+        return;
+    }
+    
+    /* Strip query string from URI */
+    query = strchr(uri, '?');
+    if (query) {
+        *query = '\0';
+    }
+    
+    /* URL decode */
+    url_decode(decoded_uri, uri, sizeof(decoded_uri));
+    
+    /* Prevent directory traversal in URI */
+    if (has_traversal(decoded_uri)) {
+        send_response(client, 403, "Forbidden", "text/html",
+                      "<h1>403 Forbidden</h1>", 22);
+        return;
+    }
+    
+    /* Build file path */
+    if (decoded_uri[0] == '/') {
+        snprintf(path, sizeof(path), "%s%s", root, decoded_uri);
+    } else {
+        snprintf(path, sizeof(path), "%s/%s", root, decoded_uri);
+    }
+    
+    /* Try to serve file */
+    if (stat(path, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            /* Try index.html for directories, else list directory */
+            char index_path[MAX_PATH];
+            int ret;
+            
+            ret = snprintf(index_path, sizeof(index_path),
+                           "%s/index.html", path);
+            if (ret < 0 || (size_t)ret >= sizeof(index_path)) {
+                send_directory_listing(client, root, decoded_uri);
+                return;
+            }
+            
+            if (stat(index_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
+                send_file_response_full(client, index_path, is_head);
+            } else {
+                if (is_head) {
+                    /* For HEAD request to directory, send minimal headers */
+                    send_response(client, 200, "OK", "text/html; charset=utf-8", NULL, 0);
+                } else {
+                    send_directory_listing(client, root, decoded_uri);
+                }
+            }
+        } else {
+            send_file_response_full(client, path, is_head);
+        }
+    } else {
+        /* Try adding .html extension */
+        char html_path[MAX_PATH + 5];
+        int ret;
+        
+        ret = snprintf(html_path, sizeof(html_path), "%s.html", path);
+        if (ret < 0 || (size_t)ret >= sizeof(html_path)) {
+            send_response(client, 404, "Not Found", "text/html",
+                          "<h1>404 Not Found</h1>", 22);
+            return;
+        }
+        
+        if (stat(html_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
+            send_file_response_full(client, html_path, is_head);
+        } else {
+            send_response(client, 404, "Not Found", "text/html",
+                          "<h1>404 Not Found</h1>", 22);
+        }
+    }
+}
+
+/* Generate directory listing HTML */
+static void send_directory_listing(int client, const char* root, const char* uri)
+{
+    char path[MAX_PATH];
+    DIR* dir;
+    struct dirent* entry;
+    char html[4096];
+    size_t html_len;
+    int is_root;
+    
+    snprintf(path, sizeof(path), "%s%s", root, uri);
+    dir = opendir(path);
+    if (!dir) {
+        send_response(client, 403, "Forbidden", "text/html",
+                      "<h1>403 Forbidden</h1>", 22);
+        return;
+    }
+    
+    is_root = (strcmp(uri, "/") == 0);
+    
+    html_len = snprintf(html, sizeof(html),
+                        "<!DOCTYPE html>\n"
+                        "<html>\n"
+                        "<head>\n"
+                        "<meta charset=\"UTF-8\">\n"
+                        "<title>Index of %s</title>\n"
+                        "<style>\n"
+                        "body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }\n"
+                        "h1 { border-bottom: 1px solid #ddd; padding-bottom: 10px; }\n"
+                        "ul { list-style: none; padding: 0; }\n"
+                        "li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }\n"
+                        "a { text-decoration: none; color: #0366d6; }\n"
+                        "a:hover { text-decoration: underline; }\n"
+                        ".dir { font-weight: bold; }\n"
+                        "</style>\n"
+                        "</head>\n"
+                        "<body>\n"
+                        "<h1>Index of %s</h1>\n"
+                        "<ul>\n",
+                        uri, uri);
+    
+    if (!is_root) {
+        html_len += snprintf(html + html_len, sizeof(html) - html_len,
+                             "<li><a href=\"..\">../</a></li>\n");
+    }
+    
+    while ((entry = readdir(dir)) != NULL) {
+        const char* name = entry->d_name;
+        struct stat entry_st;
+        char full_path[MAX_PATH];
+        int is_dir;
+        
+        /* Skip hidden files and current/parent dir */
+        if (name[0] == '.' || strcmp(name, "..") == 0) {
+            continue;
+        }
+        
+        snprintf(full_path, sizeof(full_path), "%s/%s", path, name);
+        is_dir = (stat(full_path, &entry_st) == 0 && S_ISDIR(entry_st.st_mode));
+        
+        html_len += snprintf(html + html_len, sizeof(html) - html_len,
+                             "<li><a href=\"%s%s\" %s>%s%s</a></li>\n",
+                             name, is_dir ? "/" : "",
+                             is_dir ? "class=\"dir\"" : "",
+                             name, is_dir ? "/" : "");
+        
+        if (html_len >= sizeof(html) - 256) {
+            break;
+        }
+    }
+    
+    closedir(dir);
+    
+    html_len += snprintf(html + html_len, sizeof(html) - html_len,
+                         "</ul>\n"
+                         "</body>\n"
+                         "</html>\n");
+    
+    send_response(client, 200, "OK", "text/html; charset=utf-8", html, html_len);
+}
+
+/* Run development server */
+int cmd_serve(int port, int rebuild)
+{
+    int server_fd;
+    int client_fd;
+    struct sockaddr_in server_addr;
+    struct sockaddr_in client_addr;
+    socklen_t client_len;
+    int opt;
+    struct stat st;
+    
+    /* Check if public directory exists */
+    if (stat(DEFAULT_ROOT, &st) != 0) {
+        fprintf(stderr, "Error: %s/ directory not found\n", DEFAULT_ROOT);
+        fprintf(stderr, "Run 'cxo build' first to generate the site.\n");
+        return CXO_ERR_IO;
+    }
+    
+    /* Create socket */
+    server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_fd < 0) {
+        perror("socket");
+        return CXO_ERR_IO;
+    }
+    
+    /* Allow address reuse */
+    opt = 1;
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+        perror("setsockopt");
+        close(server_fd);
+        return CXO_ERR_IO;
+    }
+    
+    /* Bind address */
+    memset(&server_addr, 0, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(port);
+    
+    if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        perror("bind");
+        close(server_fd);
+        return CXO_ERR_IO;
+    }
+    
+    /* Listen */
+    if (listen(server_fd, 10) < 0) {
+        perror("listen");
+        close(server_fd);
+        return CXO_ERR_IO;
+    }
+    
+    /* Set up signal handlers using sigaction for reliability */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    
+    printf("CXO development server running at http://localhost:%d\n", port);
+    printf("Serving directory: %s/\n", DEFAULT_ROOT);
+    if (rebuild) {
+        printf("Auto-rebuild: enabled\n");
+    }
+    printf("Press Ctrl+C to stop\n\n");
+    
+    /* Server loop - use select() to allow interruption */
+    while (server_running) {
+        fd_set readfds;
+        struct timeval timeout;
+        int ret;
+        
+        FD_ZERO(&readfds);
+        FD_SET(server_fd, &readfds);
+        
+        /* 100ms timeout to check server_running */
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000;
+        
+        ret = select(server_fd + 1, &readfds, NULL, NULL, &timeout);
+        
+        if (ret < 0) {
+            if (errno == EINTR) {
+                /* Interrupted by signal, loop will check server_running */
+                continue;
+            }
+            perror("select");
+            break;
+        }
+        
+        if (ret == 0) {
+            /* Timeout - loop back to check server_running */
+            continue;
+        }
+        
+        if (!FD_ISSET(server_fd, &readfds)) {
+            continue;
+        }
+        
+        /* Accept connection */
+        client_len = sizeof(client_addr);
+        client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
+        
+        if (client_fd < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+            }
+            perror("accept");
+            continue;
+        }
+        
+        handle_request(client_fd, DEFAULT_ROOT);
+        close(client_fd);
+    }
+    
+
+    
+    printf("\nShutting down server...\n");
+    close(server_fd);
+    
+    return CXO_OK;
+}
