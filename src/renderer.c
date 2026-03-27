@@ -329,6 +329,116 @@ static int render_entry(cxo_entry_t* entry, cxo_context_t* ctx,
     return rc;
 }
 
+/* Build entry list HTML for index page */
+static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* lang)
+{
+    size_t i;
+    size_t total_len;
+    char* list_html;
+    size_t offset;
+    size_t count;
+    
+    /* Count matching entries */
+    count = 0;
+    for (i = 0; i < ctx->count; i++) {
+        if (strcmp(ctx->entries[i]->lang, lang) == 0) {
+            count++;
+        }
+    }
+    
+    if (count == 0) {
+        return arena_strdup(arena, "<li>No posts yet</li>\n");
+    }
+    
+    /* Calculate total length needed */
+    total_len = 256;  /* Base buffer */
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0) {
+            continue;
+        }
+        /* <li><a href="/posts/xxx.html">Title</a> <span class="date">date</span></li>\n */
+        total_len += 100 + strlen(entry->slug) + strlen(entry->title) +
+                     strlen(entry->date);
+    }
+    
+    list_html = arena_alloc(arena, total_len);
+    if (!list_html) {
+        return NULL;
+    }
+    
+    list_html[0] = '\0';
+    offset = 0;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0) {
+            continue;
+        }
+        const char* subdir = get_output_subdir(entry->lang);
+        int written = snprintf(list_html + offset, total_len - offset,
+                               "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
+                               subdir, entry->slug, entry->title, entry->date);
+        if (written > 0) {
+            offset += written;
+        }
+    }
+    
+    return list_html;
+}
+
+/* Generate index page */
+static int render_index(cxo_context_t* ctx, arena_t* arena,
+                        const char* output_dir, const char* lang)
+{
+    char path[MAX_OUTPUT_PATH];
+    FILE* fp;
+    char* entry_list;
+    const char* title;
+    
+    title = ctx->site_title;
+    (void)get_output_subdir;
+    
+    if (strcmp(lang, "en") == 0) {
+        snprintf(path, sizeof(path), "%s/en/index.html", output_dir);
+    } else {
+        snprintf(path, sizeof(path), "%s/index.html", output_dir);
+    }
+    
+    entry_list = build_entry_list(ctx, arena, lang);
+    if (!entry_list) {
+        entry_list = "";
+    }
+    
+    fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Cannot write %s\n", path);
+        return CXO_ERR_IO;
+    }
+    
+    fprintf(fp,
+            "<!DOCTYPE html>\n"
+            "<html lang=\"%s\">\n"
+            "<head>\n"
+            "<meta charset=\"UTF-8\">\n"
+            "<title>%s</title>\n"
+            "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+            "</head>\n"
+            "<body>\n"
+            "<nav><a href=\"/\">%s</a></nav>\n"
+            "<h1>%s</h1>\n"
+            "<ul class=\"post-list\">\n"
+            "%s"
+            "</ul>\n"
+            "</body>\n"
+            "</html>\n",
+            lang, title, ctx->site_title, ctx->site_title, entry_list);
+    
+    fclose(fp);
+    printf("Generated: %s\n", path);
+    return CXO_OK;
+}
+
 /* Render entire site */
 int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
                     const char* output_dir)
@@ -348,6 +458,7 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     tmpl = load_template(arena, ctx->theme_path);
     copy_theme_assets(ctx->theme_path, output_dir);
     
+    /* Render individual entries */
     success = 0;
     for (i = 0; i < ctx->count; i++) {
         rc = render_entry(ctx->entries[i], ctx, arena, output_dir, tmpl);
@@ -355,6 +466,10 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
             success++;
         }
     }
+    
+    /* Generate index pages */
+    render_index(ctx, arena, output_dir, "zh");
+    render_index(ctx, arena, output_dir, "en");
     
     printf("Rendered %d/%zu entries\n", success, ctx->count);
     
