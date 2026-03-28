@@ -24,6 +24,7 @@ static const char* fallback_template =
     "<meta charset=\"UTF-8\">\n"
     "<title>{{title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css\">\n"
     "</head>\n"
     "<body>\n"
     "<nav><a href=\"/\">{{site_title}}</a> {{nav_lang_switch}}</nav>\n"
@@ -33,6 +34,8 @@ static const char* fallback_template =
     "<div class=\"content\">{{content}}</div>\n"
     "</article>\n"
     "<footer><p>{{site_description}}</p></footer>\n"
+    "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>\n"
+    "<script>hljs.highlightAll();</script>\n"
     "</body>\n"
     "</html>\n";
 

@@ -4,12 +4,17 @@
 <meta charset="UTF-8">
 <title>{{title}}</title>
 <link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
 </head>
 <body>
-<nav><a href="/">{{site_title}}</a></nav>
+<nav><a href="/">{{site_title}}</a> {{nav_lang_switch}}</nav>
 <article>
 <h1>{{title}}</h1>
+<div class="meta">{{date}}</div>
 <div class="content">{{content}}</div>
 </article>
+<footer><p>{{site_description}}</p></footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
 </body>
 </html>
