@@ -313,6 +313,11 @@ static int render_entry(cxo_entry_t* entry, cxo_context_t* ctx,
     char* html;
     int rc;
     
+    /* Skip draft posts unless CXO_DRAFT=1 */
+    if (entry->draft && getenv("CXO_DRAFT") == NULL) {
+        return CXO_OK;
+    }
+    
     subdir = get_output_subdir(entry->lang);
     
     snprintf(path, sizeof(path), "%s/%s", output_dir, subdir);
@@ -333,6 +338,12 @@ static int render_entry(cxo_entry_t* entry, cxo_context_t* ctx,
     return rc;
 }
 
+/* Check if draft posts should be rendered */
+static int show_drafts(void)
+{
+    return getenv("CXO_DRAFT") != NULL;
+}
+
 /* Build entry list HTML for index page */
 static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* lang)
 {
@@ -341,11 +352,15 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
     char* list_html;
     size_t offset;
     size_t count;
+    int include_drafts;
     
-    /* Count matching entries */
+    include_drafts = show_drafts();
+    
+    /* Count matching entries (excluding drafts unless in draft mode) */
     count = 0;
     for (i = 0; i < ctx->count; i++) {
-        if (strcmp(ctx->entries[i]->lang, lang) == 0) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) == 0 && (!entry->draft || include_drafts)) {
             count++;
         }
     }
@@ -358,7 +373,7 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
     total_len = 256;  /* Base buffer */
     for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
-        if (strcmp(entry->lang, lang) != 0) {
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
         /* <li><a href="/posts/xxx.html">Title</a> <span class="date">date</span></li>\n */
@@ -376,7 +391,7 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
     
     for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
-        if (strcmp(entry->lang, lang) != 0) {
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
         const char* subdir = get_output_subdir(entry->lang);
@@ -524,6 +539,11 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena __attribute__((unused))
         const char* subdir;
         
         if (strcmp(entry->lang, lang) != 0) {
+            continue;
+        }
+        
+        /* Skip draft posts in RSS */
+        if (entry->draft) {
             continue;
         }
         

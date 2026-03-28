@@ -112,6 +112,14 @@ static int parse_frontmatter_line(cxo_entry_t* entry, arena_t* arena,
         entry->date = arena_strdup(arena, value);
     } else if (strcmp(key, "slug") == 0) {
         entry->slug = arena_strdup(arena, value);
+    } else if (strcmp(key, "draft") == 0) {
+        /* Parse draft: true/false/yes/no/1/0 */
+        if (strcmp(value, "true") == 0 || strcmp(value, "yes") == 0 ||
+            strcmp(value, "1") == 0) {
+            entry->draft = 1;
+        } else {
+            entry->draft = 0;
+        }
     }
     
     return CXO_OK;
