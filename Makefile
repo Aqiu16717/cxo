@@ -26,8 +26,8 @@ BINDIR = $(PREFIX)/bin
 LIBS =
 
 # Source files
-CXO_SRCS = src/main.c src/cmd_init.c src/cmd_serve.c src/config.c src/renderer.c src/linker.c \
-           src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
+CXO_SRCS = src/main.c src/cmd_init.c src/cmd_serve.c src/cmd_deploy.c src/config.c src/renderer.c \
+           src/linker.c src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
 
 # cmark sources (embedded, exclude main.c)
 CMARK_SRCS = $(filter-out src/cmark/main.c, $(wildcard src/cmark/*.c))

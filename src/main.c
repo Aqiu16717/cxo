@@ -18,6 +18,7 @@ extern int cmd_init(const char* dir);
 extern int cmd_new(const char* title);
 extern int cmd_clean(void);
 extern int cmd_serve(int port, int rebuild);
+extern int cmd_deploy(void);
 
 static void print_usage(const char* prog)
 {
@@ -27,6 +28,7 @@ static void print_usage(const char* prog)
     fprintf(stderr, "  new <title>    Create a new blog post\n");
     fprintf(stderr, "  build          Build the static site\n");
     fprintf(stderr, "  serve [port]   Start development server (default: 8080)\n");
+    fprintf(stderr, "  deploy         Deploy to GitHub Pages\n");
     fprintf(stderr, "  clean          Clean build output\n");
     fprintf(stderr, "  version        Show version information\n");
     fprintf(stderr, "  help           Show this help message\n");
@@ -154,6 +156,9 @@ int main(int argc, char* argv[])
             return 1;
         }
         int rc = cmd_serve(port, 0);
+        return CXO_IS_ERR(rc) ? 1 : 0;
+    } else if (strcmp(cmd, "deploy") == 0) {
+        int rc = cmd_deploy();
         return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "clean") == 0) {
         int rc = cmd_clean();
