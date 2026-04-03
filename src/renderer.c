@@ -16,6 +16,23 @@
 #define MAX_OUTPUT_PATH 4096
 #define MAX_TEMPLATE_SIZE (256 * 1024)
 
+/* Hot reload script - injected when CXO_HOTRELOAD=1 */
+static const char* hotreload_script =
+    "<script>\n"
+    "(function() {\n"
+    "  const es = new EventSource('/__cxo_reload');\n"
+    "  es.onmessage = function(e) {\n"
+    "    if (e.data === 'reload') {\n"
+    "      console.log('[CXO] Reloading...');\n"
+    "      location.reload();\n"
+    "    }\n"
+    "  };\n"
+    "  es.onerror = function() {\n"
+    "    console.log('[CXO] Hot reload disconnected');\n"
+    "  };\n"
+    "})();\n"
+    "</script>\n";
+
 /* Fallback inline template */
 static const char* fallback_template =
     "<!DOCTYPE html>\n"
@@ -36,6 +53,7 @@ static const char* fallback_template =
     "<footer><p>{{site_description}}</p></footer>\n"
     "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>\n"
     "<script>hljs.highlightAll();</script>\n"
+    "{{hotreload}}"
     "</body>\n"
     "</html>\n";
 
@@ -267,6 +285,12 @@ static int copy_theme_assets(const char* theme_path, const char* output_dir)
     return CXO_OK;
 }
 
+/* Check if hot reload is enabled */
+static int hotreload_enabled(void)
+{
+    return getenv("CXO_HOTRELOAD") != NULL;
+}
+
 /* Generate HTML */
 static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
                            arena_t* arena, const char* tmpl)
@@ -283,6 +307,8 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
     html = replace_var(arena, html, "nav_lang_switch", lang_switch);
     html = replace_var(arena, html, "site_title", ctx->site_title);
     html = replace_var(arena, html, "site_description", ctx->site_description);
+    html = replace_var(arena, html, "hotreload",
+                       hotreload_enabled() ? hotreload_script : "");
     
     return html;
 }
@@ -588,6 +614,7 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
     FILE* fp;
     char* entry_list;
     const char* title;
+    const char* hotreload_html;
     
     title = ctx->site_title;
     (void)get_output_subdir;
@@ -602,6 +629,8 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
     if (!entry_list) {
         entry_list = "";
     }
+    
+    hotreload_html = hotreload_enabled() ? hotreload_script : "";
     
     fp = fopen(path, "w");
     if (!fp) {
@@ -623,9 +652,10 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
             "<ul class=\"post-list\">\n"
             "%s"
             "</ul>\n"
+            "%s"
             "</body>\n"
             "</html>\n",
-            lang, title, ctx->site_title, ctx->site_title, entry_list);
+            lang, title, ctx->site_title, ctx->site_title, entry_list, hotreload_html);
     
     fclose(fp);
     printf("Generated: %s\n", path);
