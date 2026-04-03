@@ -25,6 +25,11 @@
 #define BUFFER_SIZE 8192
 #define MAX_PATH 512
 
+/* Platform-specific defines */
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 /* MIME type mapping */
 typedef struct {
     const char* ext;
@@ -104,20 +109,15 @@ static void url_decode(char* dst, const char* src, size_t size)
     dst[j] = '\0';
 }
 
-/* Check if path contains directory traversal
- * Looks for ".." followed by path separator or end of string
- * Also checks for ".." at start of path or after "/"
- */
+/* Check if path contains directory traversal */
 static int has_traversal(const char* path)
 {
     const char* p;
     
     p = path;
     while (*p) {
-        /* Check for ".." at start or after "/" */
         if (p[0] == '.') {
             if (p[1] == '.') {
-                /* Check if ".." is at end or followed by separator */
                 if (p[2] == '\0' || p[2] == '/') {
                     return 1;
                 }
@@ -127,13 +127,6 @@ static int has_traversal(const char* path)
     }
     return 0;
 }
-
-/* Forward declarations */
-static void send_response(int client, int status, const char* status_text,
-                          const char* content_type, const char* body,
-                          size_t body_len);
-static void send_file_response_full(int client, const char* path, int is_head);
-static void send_directory_listing(int client, const char* root, const char* uri);
 
 /* Send HTTP response */
 static void send_response(int client, int status, const char* status_text,
@@ -160,7 +153,6 @@ static void send_response(int client, int status, const char* status_text,
              "\r\n",
              status, status_text, content_type, body_len, date);
     
-    /* Send header with retry */
     total = 0;
     while (total < strlen(header)) {
         sent = send(client, header + total, strlen(header) - total, 0);
@@ -170,7 +162,6 @@ static void send_response(int client, int status, const char* status_text,
         total += sent;
     }
     
-    /* Send body with retry */
     if (body && body_len > 0) {
         total = 0;
         while (total < body_len) {
@@ -183,10 +174,37 @@ static void send_response(int client, int status, const char* status_text,
     }
 }
 
-/* Forward declarations */
-/* Send file response
- * If is_head is 1, only send headers (for HEAD request)
- */
+/* Send SSE headers for hot reload */
+static void send_sse_headers(int client)
+{
+    char header[256];
+    ssize_t sent;
+    size_t total;
+    
+    snprintf(header, sizeof(header),
+             "HTTP/1.1 200 OK\r\n"
+             "Content-Type: text/event-stream\r\n"
+             "Cache-Control: no-cache\r\n"
+             "Connection: keep-alive\r\n"
+             "\r\n");
+    
+    total = 0;
+    while (total < strlen(header)) {
+        sent = send(client, header + total, strlen(header) - total, 0);
+        if (sent < 0) {
+            return;
+        }
+        total += sent;
+    }
+}
+
+/* Send reload event via SSE */
+static void send_reload_event(int client)
+{
+    const char* event = "data: reload\n\n";
+    send(client, event, strlen(event), MSG_NOSIGNAL);
+}
+
 static void send_file_response_full(int client, const char* path, int is_head)
 {
     int fd;
@@ -237,7 +255,6 @@ static void send_file_response_full(int client, const char* path, int is_head)
              "\r\n",
              mime, (long long)st.st_size, date);
     
-    /* Send header */
     total = 0;
     while (total < strlen(header)) {
         sent = send(client, header + total, strlen(header) - total, 0);
@@ -248,13 +265,11 @@ static void send_file_response_full(int client, const char* path, int is_head)
         total += sent;
     }
     
-    /* For HEAD request, don't send body */
     if (is_head) {
         close(fd);
         return;
     }
     
-    /* Send file content */
     while ((n = read(fd, buf, sizeof(buf))) > 0) {
         total = 0;
         while (total < (size_t)n) {
@@ -270,11 +285,13 @@ static void send_file_response_full(int client, const char* path, int is_head)
     close(fd);
 }
 
-/* Wrapper for normal GET requests (inline to avoid unused warning) */
 #define send_file_response(client, path) send_file_response_full((client), (path), 0)
 
+/* Forward declaration */
+static void send_directory_listing(int client, const char* root, const char* uri);
+
 /* Handle single HTTP request */
-static void handle_request(int client, const char* root)
+static void handle_request(int client, const char* root, int* sse_client)
 {
     char buf[BUFFER_SIZE];
     char method[16];
@@ -315,6 +332,13 @@ static void handle_request(int client, const char* root)
     /* URL decode */
     url_decode(decoded_uri, uri, sizeof(decoded_uri));
     
+    /* Check for SSE endpoint */
+    if (strcmp(decoded_uri, "/__cxo_reload") == 0) {
+        send_sse_headers(client);
+        *sse_client = client;
+        return;
+    }
+    
     /* Prevent directory traversal in URI */
     if (has_traversal(decoded_uri)) {
         send_response(client, 403, "Forbidden", "text/html",
@@ -332,7 +356,6 @@ static void handle_request(int client, const char* root)
     /* Try to serve file */
     if (stat(path, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
-            /* Try index.html for directories, else list directory */
             char index_path[MAX_PATH];
             int ret;
             
@@ -347,7 +370,6 @@ static void handle_request(int client, const char* root)
                 send_file_response_full(client, index_path, is_head);
             } else {
                 if (is_head) {
-                    /* For HEAD request to directory, send minimal headers */
                     send_response(client, 200, "OK", "text/html; charset=utf-8", NULL, 0);
                 } else {
                     send_directory_listing(client, root, decoded_uri);
@@ -429,7 +451,6 @@ static void send_directory_listing(int client, const char* root, const char* uri
         char full_path[MAX_PATH];
         int is_dir;
         
-        /* Skip hidden files and current/parent dir */
         if (name[0] == '.' || strcmp(name, "..") == 0) {
             continue;
         }
@@ -468,6 +489,7 @@ int cmd_serve(int port, int rebuild)
     socklen_t client_len;
     int opt;
     struct stat st;
+    int sse_client = -1;
     
     /* Check if public directory exists */
     if (stat(DEFAULT_ROOT, &st) != 0) {
@@ -510,7 +532,7 @@ int cmd_serve(int port, int rebuild)
         return CXO_ERR_IO;
     }
     
-    /* Set up signal handlers using sigaction for reliability */
+    /* Set up signal handlers */
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = signal_handler;
@@ -526,7 +548,7 @@ int cmd_serve(int port, int rebuild)
     }
     printf("Press Ctrl+C to stop\n\n");
     
-    /* Server loop - use select() to allow interruption */
+    /* Server loop */
     while (server_running) {
         fd_set readfds;
         struct timeval timeout;
@@ -535,15 +557,13 @@ int cmd_serve(int port, int rebuild)
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
         
-        /* 100ms timeout to check server_running */
         timeout.tv_sec = 0;
-        timeout.tv_usec = 100000;
+        timeout.tv_usec = 500000;
         
         ret = select(server_fd + 1, &readfds, NULL, NULL, &timeout);
         
         if (ret < 0) {
             if (errno == EINTR) {
-                /* Interrupted by signal, loop will check server_running */
                 continue;
             }
             perror("select");
@@ -551,7 +571,6 @@ int cmd_serve(int port, int rebuild)
         }
         
         if (ret == 0) {
-            /* Timeout - loop back to check server_running */
             continue;
         }
         
@@ -574,13 +593,16 @@ int cmd_serve(int port, int rebuild)
             continue;
         }
         
-        handle_request(client_fd, DEFAULT_ROOT);
-        close(client_fd);
+        handle_request(client_fd, DEFAULT_ROOT, &sse_client);
+        if (sse_client != client_fd) {
+            close(client_fd);
+        }
     }
     
-
-    
     printf("\nShutting down server...\n");
+    if (sse_client >= 0) {
+        close(sse_client);
+    }
     close(server_fd);
     
     return CXO_OK;
