@@ -118,35 +118,29 @@ static int build_site(void)
     return 0;
 }
 
-/* Deploy to gh-pages branch */
-static int deploy_to_gh_pages(void)
+/* Get current git branch and short hash */
+static void get_git_info(char* branch, size_t branch_size,
+                         char* hash, size_t hash_size)
 {
-    char current_branch[256];
-    char commit_hash[64];
-    int ret;
-    
-    /* Get current branch */
-    exec_cmd("git branch --show-current", current_branch, sizeof(current_branch));
-    if (strlen(current_branch) == 0) {
-        strcpy(current_branch, "main");
+    exec_cmd("git branch --show-current", branch, branch_size);
+    if (strlen(branch) == 0) {
+        strcpy(branch, "main");
     }
     
-    /* Get current commit hash */
-    exec_cmd("git rev-parse --short HEAD", commit_hash, sizeof(commit_hash));
-    if (strlen(commit_hash) == 0) {
-        strcpy(commit_hash, "unknown");
+    exec_cmd("git rev-parse --short HEAD", hash, hash_size);
+    if (strlen(hash) == 0) {
+        strcpy(hash, "unknown");
     }
+}
+
+/* Switch to gh-pages branch, creating it if needed */
+static int checkout_gh_pages(void)
+{
+    const char* check_argv[] = {"git", "show-ref", "--verify", "--quiet",
+                                "refs/heads/gh-pages", NULL};
+    int ret = run_cmd(check_argv);
     
-    printf("Deploying to gh-pages branch...\n");
-    
-    /* Check if gh-pages branch exists */
-    {
-        const char* check_argv[] = {"git", "show-ref", "--verify", "--quiet",
-                                    "refs/heads/gh-pages", NULL};
-        ret = run_cmd(check_argv);
-    }
     if (ret != 0) {
-        /* Create orphan branch */
         const char* orphan_argv[] = {"git", "checkout", "--orphan", "gh-pages", NULL};
         ret = run_cmd(orphan_argv);
         if (ret != 0) {
@@ -162,53 +156,76 @@ static int deploy_to_gh_pages(void)
         }
     }
     
+    return 0;
+}
+
+/* Add, commit and push to gh-pages */
+static int commit_and_push(const char* branch, const char* hash)
+{
+    char msg[256];
+    const char* add_argv[] = {"git", "add", "-A", NULL};
+    const char* push_argv[] = {"git", "push", "origin", "gh-pages", NULL};
+    const char* commit_argv[] = {"git", "commit", "-m", msg, NULL};
+    int ret;
+    
+    ret = run_cmd(add_argv);
+    if (ret != 0) {
+        fprintf(stderr, "Error: Failed to add files\n");
+        return -1;
+    }
+    
+    snprintf(msg, sizeof(msg), "Deploy: %s from %s", hash, branch);
+    ret = run_cmd(commit_argv);
+    if (ret != 0) {
+        printf("No changes to deploy\n");
+    } else {
+        printf("Committed changes\n");
+    }
+    
+    ret = run_cmd(push_argv);
+    if (ret != 0) {
+        fprintf(stderr, "Error: Failed to push to gh-pages\n");
+        return -1;
+    }
+    
+    printf("Pushed to gh-pages branch\n");
+    return 0;
+}
+
+/* Switch back to original branch */
+static void switch_back(const char* branch)
+{
+    const char* checkout_argv[] = {"git", "checkout", branch, NULL};
+    run_cmd(checkout_argv);
+}
+
+/* Deploy to gh-pages branch */
+static int deploy_to_gh_pages(void)
+{
+    char current_branch[256];
+    char commit_hash[64];
+    
+    get_git_info(current_branch, sizeof(current_branch),
+                 commit_hash, sizeof(commit_hash));
+    
+    printf("Deploying to gh-pages branch...\n");
+    
+    if (checkout_gh_pages() != 0) {
+        return -1;
+    }
+    
     /* Remove all files except public/ */
     system("git rm -rf . > /dev/null 2>&1");
     
     /* Move public files to root */
     system("mv public/* . 2>/dev/null; mv public/.* . 2>/dev/null; rmdir public 2>/dev/null");
     
-    /* Add all files */
-    {
-        const char* add_argv[] = {"git", "add", "-A", NULL};
-        ret = run_cmd(add_argv);
-    }
-    if (ret != 0) {
-        fprintf(stderr, "Error: Failed to add files\n");
-        goto cleanup;
+    if (commit_and_push(current_branch, commit_hash) != 0) {
+        switch_back(current_branch);
+        return -1;
     }
     
-    /* Commit */
-    {
-        char msg[256];
-        const char* commit_argv[] = {"git", "commit", "-m", msg, NULL};
-        snprintf(msg, sizeof(msg), "Deploy: %s from %s", commit_hash, current_branch);
-        ret = run_cmd(commit_argv);
-    }
-    if (ret != 0) {
-        /* No changes to commit */
-        printf("No changes to deploy\n");
-    } else {
-        printf("Committed changes\n");
-    }
-    
-    /* Push */
-    {
-        const char* push_argv[] = {"git", "push", "origin", "gh-pages", NULL};
-        ret = run_cmd(push_argv);
-    }
-    if (ret != 0) {
-        fprintf(stderr, "Error: Failed to push to gh-pages\n");
-        goto cleanup;
-    }
-    
-    printf("Pushed to gh-pages branch\n");
-    
-    /* Switch back to original branch */
-    {
-        const char* checkout_argv[] = {"git", "checkout", current_branch, NULL};
-        run_cmd(checkout_argv);
-    }
+    switch_back(current_branch);
     
     printf("\n✓ Deployed successfully!\n");
     printf("Your site will be available at:\n");
@@ -216,14 +233,6 @@ static int deploy_to_gh_pages(void)
     printf("\nNote: It may take a few minutes for GitHub Pages to update.\n");
     
     return 0;
-    
-cleanup:
-    /* Try to switch back */
-    {
-        const char* checkout_argv[] = {"git", "checkout", current_branch, NULL};
-        run_cmd(checkout_argv);
-    }
-    return -1;
 }
 
 /* Deploy command */
