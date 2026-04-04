@@ -113,7 +113,7 @@ static int deploy_to_gh_pages(void)
     /* Remove all files except public/ */
     system("git rm -rf . > /dev/null 2>&1");
     
-    /* Move public/* to root */
+    /* Move public files to root */
     system("mv public/* . 2>/dev/null; mv public/.* . 2>/dev/null; rmdir public 2>/dev/null");
     
     /* Add all files */
