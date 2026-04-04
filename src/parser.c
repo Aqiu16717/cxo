@@ -243,7 +243,9 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     /* Copy HTML to arena */
     entry->html_content = arena_strdup(arena, html);
     
-    /* Free libcmark allocated string */
+    /* libcmark allocates with malloc; we must free it explicitly.
+     * This is the only exception to the arena-only rule in core logic.
+     */
     free(html);
     
     return CXO_OK;
