@@ -535,7 +535,11 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena __attribute__((unused))
     
     base_url = ctx->base_url ? ctx->base_url : "http://localhost";
     
-    snprintf(path, sizeof(path), "%s/rss.xml", output_dir);
+    if (strcmp(lang, "en") == 0) {
+        snprintf(path, sizeof(path), "%s/en/rss.xml", output_dir);
+    } else {
+        snprintf(path, sizeof(path), "%s/rss.xml", output_dir);
+    }
     
     fp = fopen(path, "w");
     if (!fp) {
@@ -755,6 +759,7 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     
     /* Generate RSS feeds */
     render_rss(ctx, arena, output_dir, "zh");
+    render_rss(ctx, arena, output_dir, "en");
     
     /* Generate sitemap */
     render_sitemap(ctx, arena, output_dir);
