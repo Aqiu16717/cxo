@@ -334,12 +334,33 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
     lang_switch = build_lang_switch(arena, entry);
     
     html = replace_var(arena, tmpl, "title", entry->title);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "date", entry->date);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "lang", entry->lang);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "content", entry->html_content);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "nav_lang_switch", lang_switch);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "site_title", ctx->site_title);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "site_description", ctx->site_description);
+    if (!html) {
+        return NULL;
+    }
     html = replace_var(arena, html, "hotreload",
                        hotreload_enabled() ? hotreload_script : "");
     
@@ -724,11 +745,26 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
     }
     
     html = replace_var(arena, tmpl, "lang", lang);
+    if (!html) {
+        html = "";
+    }
     html = replace_var(arena, html, "site_title", ctx->site_title);
+    if (!html) {
+        html = "";
+    }
     html = replace_var(arena, html, "site_description", ctx->site_description);
+    if (!html) {
+        html = "";
+    }
     html = replace_var(arena, html, "entry_list", entry_list);
+    if (!html) {
+        html = "";
+    }
     html = replace_var(arena, html, "hotreload",
                        hotreload_enabled() ? hotreload_script : "");
+    if (!html) {
+        html = "";
+    }
     
     fp = fopen(path, "w");
     if (!fp) {
