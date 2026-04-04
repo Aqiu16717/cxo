@@ -606,6 +606,65 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena __attribute__((unused))
     return CXO_OK;
 }
 
+/* Generate sitemap */
+static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unused)),
+                          const char* output_dir)
+{
+    char path[MAX_OUTPUT_PATH];
+    FILE* fp;
+    size_t i;
+    const char* base_url;
+    
+    base_url = ctx->base_url ? ctx->base_url : "http://localhost";
+    snprintf(path, sizeof(path), "%s/sitemap.xml", output_dir);
+    
+    fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Cannot write %s\n", path);
+        return CXO_ERR_IO;
+    }
+    
+    fprintf(fp,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    
+    /* Home pages */
+    fprintf(fp,
+            "<url>\n"
+            "<loc>%s/</loc>\n"
+            "<priority>1.0</priority>\n"
+            "</url>\n", base_url);
+    fprintf(fp,
+            "<url>\n"
+            "<loc>%s/en/</loc>\n"
+            "<priority>1.0</priority>\n"
+            "</url>\n", base_url);
+    
+    /* Entries */
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        const char* subdir;
+        
+        if (entry->draft) {
+            continue;
+        }
+        
+        subdir = get_output_subdir(entry->lang);
+        fprintf(fp,
+                "<url>\n"
+                "<loc>%s/%s/%s.html</loc>\n"
+                "<lastmod>%s</lastmod>\n"
+                "<priority>0.8</priority>\n"
+                "</url>\n",
+                base_url, subdir, entry->slug, entry->date);
+    }
+    
+    fprintf(fp, "</urlset>\n");
+    fclose(fp);
+    printf("Generated: %s\n", path);
+    return CXO_OK;
+}
+
 /* Generate index page */
 static int render_index(cxo_context_t* ctx, arena_t* arena,
                         const char* output_dir, const char* lang)
@@ -696,6 +755,9 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     
     /* Generate RSS feeds */
     render_rss(ctx, arena, output_dir, "zh");
+    
+    /* Generate sitemap */
+    render_sitemap(ctx, arena, output_dir);
     
     printf("Rendered %d/%zu entries\n", success, ctx->count);
     
