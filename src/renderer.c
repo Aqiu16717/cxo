@@ -424,6 +424,53 @@ static int show_drafts(void)
     return getenv("CXO_DRAFT") != NULL;
 }
 
+/* Count entries matching language and draft filter */
+static size_t count_matching_entries(cxo_context_t* ctx, const char* lang,
+                                     int include_drafts)
+{
+    size_t i;
+    size_t count = 0;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) == 0 && (!entry->draft || include_drafts)) {
+            count++;
+        }
+    }
+    return count;
+}
+
+/* Calculate buffer size needed for entry list HTML */
+static size_t calc_list_len(cxo_context_t* ctx, const char* lang,
+                            int include_drafts)
+{
+    size_t i;
+    size_t total_len = 256;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
+            continue;
+        }
+        total_len += 100 + strlen(entry->slug) + strlen(entry->title) +
+                     strlen(entry->date);
+    }
+    return total_len;
+}
+
+/* Append a single entry link to the list buffer */
+static void append_entry_link(char* buf, size_t total_len, size_t* offset,
+                              cxo_entry_t* entry)
+{
+    const char* subdir = get_output_subdir(entry->lang);
+    int written = snprintf(buf + *offset, total_len - *offset,
+                           "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
+                           subdir, entry->slug, entry->title, entry->date);
+    if (written > 0) {
+        *offset += written;
+    }
+}
+
 /* Build entry list HTML for index page */
 static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* lang)
 {
@@ -435,32 +482,13 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
     int include_drafts;
     
     include_drafts = show_drafts();
-    
-    /* Count matching entries (excluding drafts unless in draft mode) */
-    count = 0;
-    for (i = 0; i < ctx->count; i++) {
-        cxo_entry_t* entry = ctx->entries[i];
-        if (strcmp(entry->lang, lang) == 0 && (!entry->draft || include_drafts)) {
-            count++;
-        }
-    }
+    count = count_matching_entries(ctx, lang, include_drafts);
     
     if (count == 0) {
         return arena_strdup(arena, "<li>No posts yet</li>\n");
     }
     
-    /* Calculate total length needed */
-    total_len = 256;  /* Base buffer */
-    for (i = 0; i < ctx->count; i++) {
-        cxo_entry_t* entry = ctx->entries[i];
-        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
-            continue;
-        }
-        /* <li><a href="/posts/xxx.html">Title</a> <span class="date">date</span></li>\n */
-        total_len += 100 + strlen(entry->slug) + strlen(entry->title) +
-                     strlen(entry->date);
-    }
-    
+    total_len = calc_list_len(ctx, lang, include_drafts);
     list_html = arena_alloc(arena, total_len);
     if (!list_html) {
         return NULL;
@@ -474,13 +502,7 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
         if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
-        const char* subdir = get_output_subdir(entry->lang);
-        int written = snprintf(list_html + offset, total_len - offset,
-                               "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
-                               subdir, entry->slug, entry->title, entry->date);
-        if (written > 0) {
-            offset += written;
-        }
+        append_entry_link(list_html, total_len, &offset, entry);
     }
     
     return list_html;
@@ -664,6 +686,38 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena __attribute__((unused))
     return CXO_OK;
 }
 
+/* Write sitemap XML header and home pages */
+static void write_sitemap_header(FILE* fp, const char* base_url)
+{
+    fprintf(fp,
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+            "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    fprintf(fp,
+            "<url>\n"
+            "<loc>%s/</loc>\n"
+            "<priority>1.0</priority>\n"
+            "</url>\n", base_url);
+    fprintf(fp,
+            "<url>\n"
+            "<loc>%s/en/</loc>\n"
+            "<priority>1.0</priority>\n"
+            "</url>\n", base_url);
+}
+
+/* Write a single sitemap entry */
+static void write_sitemap_entry(FILE* fp, cxo_entry_t* entry,
+                                const char* base_url)
+{
+    const char* subdir = get_output_subdir(entry->lang);
+    fprintf(fp,
+            "<url>\n"
+            "<loc>%s/%s/%s.html</loc>\n"
+            "<lastmod>%s</lastmod>\n"
+            "<priority>0.8</priority>\n"
+            "</url>\n",
+            base_url, subdir, entry->slug, entry->date);
+}
+
 /* Generate sitemap */
 static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unused)),
                           const char* output_dir)
@@ -682,39 +736,14 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
         return CXO_ERR_IO;
     }
     
-    fprintf(fp,
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
+    write_sitemap_header(fp, base_url);
     
-    /* Home pages */
-    fprintf(fp,
-            "<url>\n"
-            "<loc>%s/</loc>\n"
-            "<priority>1.0</priority>\n"
-            "</url>\n", base_url);
-    fprintf(fp,
-            "<url>\n"
-            "<loc>%s/en/</loc>\n"
-            "<priority>1.0</priority>\n"
-            "</url>\n", base_url);
-    
-    /* Entries */
     for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
-        const char* subdir;
-        
         if (entry->draft) {
             continue;
         }
-        
-        subdir = get_output_subdir(entry->lang);
-        fprintf(fp,
-                "<url>\n"
-                "<loc>%s/%s/%s.html</loc>\n"
-                "<lastmod>%s</lastmod>\n"
-                "<priority>0.8</priority>\n"
-                "</url>\n",
-                base_url, subdir, entry->slug, entry->date);
+        write_sitemap_entry(fp, entry, base_url);
     }
     
     fprintf(fp, "</urlset>\n");
