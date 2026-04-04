@@ -795,7 +795,10 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     
     /* Load template and copy assets */
     tmpl = load_template(arena, ctx->theme_path);
-    copy_theme_assets(ctx->theme_path, output_dir);
+    rc = copy_theme_assets(ctx->theme_path, output_dir);
+    if (CXO_IS_ERR(rc)) {
+        fprintf(stderr, "Warning: Failed to copy theme assets\n");
+    }
     
     /* Render individual entries */
     success = 0;
