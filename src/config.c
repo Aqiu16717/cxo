@@ -5,6 +5,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <toml.h>
 #include "../include/cxo.h"
@@ -13,28 +14,19 @@
 static char* toml_string_or(const toml_table_t* tab, const char* key,
                              arena_t* arena, const char* def)
 {
-    const char* val;
+    const char* raw;
+    char* val;
+    char* result;
     
-    val = toml_raw_in(tab, key);
-    if (!val) {
-        return arena_strdup(arena, def);
-    }
-    
-    /* toml_raw_in returns quoted string, strip quotes */
-    if (val[0] == '"') {
-        size_t len;
-        char* result;
-        
-        len = strlen(val);
-        if (len >= 2 && val[len - 1] == '"') {
-            result = arena_alloc(arena, len - 1);
-            memcpy(result, val + 1, len - 2);
-            result[len - 2] = '\0';
-            return result;
+    {
+        toml_datum_t d = toml_string_in(tab, key);
+        if (!d.ok) {
+            return arena_strdup(arena, def);
         }
+        result = arena_strdup(arena, d.u.s);
+        free(d.u.s);
+        return result;
     }
-    
-    return arena_strdup(arena, val);
 }
 
 /* Load config from TOML file */
