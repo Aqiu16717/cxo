@@ -27,7 +27,8 @@ static void print_usage(const char* prog)
     fprintf(stderr, "  init [dir]     Initialize a new CXO project\n");
     fprintf(stderr, "  new <title>    Create a new blog post\n");
     fprintf(stderr, "  build          Build the static site\n");
-    fprintf(stderr, "  serve [port]   Start development server (default: 8080)\n");
+    fprintf(stderr, "  serve [options] [port]  Start development server (default: 8080)\n");
+    fprintf(stderr, "                  -w, --watch   Enable hot reload\n");
     fprintf(stderr, "  deploy         Deploy to GitHub Pages\n");
     fprintf(stderr, "  clean          Clean build output\n");
     fprintf(stderr, "  version        Show version information\n");
@@ -150,12 +151,35 @@ int main(int argc, char* argv[])
         int rc = cmd_new(argv[2]);
         return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "serve") == 0) {
-        int port = (argc >= 3) ? atoi(argv[2]) : 8080;
-        if (port <= 0 || port > 65535) {
-            fprintf(stderr, "Error: Invalid port number\n");
-            return 1;
+        int port = 8080;
+        int watch = 0;
+        int arg_idx = 2;
+        
+        /* Parse options */
+        while (arg_idx < argc) {
+            if (strcmp(argv[arg_idx], "-w") == 0 ||
+                strcmp(argv[arg_idx], "--watch") == 0) {
+                watch = 1;
+                arg_idx++;
+            } else if (argv[arg_idx][0] == '-') {
+                fprintf(stderr, "Error: Unknown option: %s\n", argv[arg_idx]);
+                return 1;
+            } else {
+                /* Port number */
+                break;
+            }
         }
-        int rc = cmd_serve(port, 0);
+        
+        /* Parse port */
+        if (arg_idx < argc) {
+            port = atoi(argv[arg_idx]);
+            if (port <= 0 || port > 65535) {
+                fprintf(stderr, "Error: Invalid port number\n");
+                return 1;
+            }
+        }
+        
+        int rc = cmd_serve(port, watch);
         return CXO_IS_ERR(rc) ? 1 : 0;
     } else if (strcmp(cmd, "deploy") == 0) {
         int rc = cmd_deploy();

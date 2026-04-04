@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/socket.h>
 #include <sys/select.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -24,6 +25,7 @@
 #define DEFAULT_ROOT "public"
 #define BUFFER_SIZE 8192
 #define MAX_PATH 512
+#define MAX_WATCH_PATHS 32
 
 /* Platform-specific defines */
 #ifndef MSG_NOSIGNAL
@@ -56,6 +58,15 @@ static const mime_map_t mime_types[] = {
 
 /* Server state */
 static volatile sig_atomic_t server_running = 1;
+
+/* Watch state */
+typedef struct {
+    char path[MAX_PATH];
+    time_t mtime;
+} watch_path_t;
+
+static watch_path_t watch_paths[MAX_WATCH_PATHS];
+static int watch_count = 0;
 
 /* Signal handler for graceful shutdown */
 static void signal_handler(int sig)
@@ -290,6 +301,23 @@ static void send_file_response_full(int client, const char* path, int is_head)
 /* Forward declaration */
 static void send_directory_listing(int client, const char* root, const char* uri);
 
+/* Check if SSE client is still connected by sending a ping */
+static int check_sse_client(int client)
+{
+    char ping[] = ":ping\n\n";
+    ssize_t sent;
+    
+    if (client < 0) {
+        return 0;
+    }
+    
+    sent = send(client, ping, strlen(ping), MSG_NOSIGNAL);
+    if (sent < 0) {
+        return 0;
+    }
+    return 1;
+}
+
 /* Handle single HTTP request */
 static void handle_request(int client, const char* root, int* sse_client)
 {
@@ -479,6 +507,127 @@ static void send_directory_listing(int client, const char* root, const char* uri
     send_response(client, 200, "OK", "text/html; charset=utf-8", html, html_len);
 }
 
+/* Add path to watch list */
+static void add_watch_path(const char* path)
+{
+    struct stat st;
+    
+    if (watch_count >= MAX_WATCH_PATHS) {
+        return;
+    }
+    
+    if (stat(path, &st) != 0) {
+        return;
+    }
+    
+    strncpy(watch_paths[watch_count].path, path, MAX_PATH - 1);
+    watch_paths[watch_count].path[MAX_PATH - 1] = '\0';
+    watch_paths[watch_count].mtime = st.st_mtime;
+    watch_count++;
+}
+
+/* Scan directory and add to watch list */
+static void scan_watch_dir(const char* dir)
+{
+    DIR* d;
+    struct dirent* entry;
+    char path[MAX_PATH];
+    struct stat st;
+    
+    add_watch_path(dir);
+    
+    d = opendir(dir);
+    if (!d) {
+        return;
+    }
+    
+    while ((entry = readdir(d)) != NULL) {
+        if (entry->d_name[0] == '.') {
+            continue;
+        }
+        
+        snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        if (stat(path, &st) != 0) {
+            continue;
+        }
+        
+        if (S_ISDIR(st.st_mode)) {
+            scan_watch_dir(path);
+        } else {
+            add_watch_path(path);
+        }
+    }
+    
+    closedir(d);
+}
+
+/* Initialize file watching */
+static void init_file_watching(void)
+{
+    watch_count = 0;
+    
+    if (access("content", F_OK) == 0) {
+        scan_watch_dir("content");
+    }
+    
+    if (access("themes", F_OK) == 0) {
+        scan_watch_dir("themes");
+    }
+    
+    add_watch_path("config.toml");
+}
+
+/* Check for file changes */
+static int check_file_changes(void)
+{
+    int i;
+    struct stat st;
+    int changed = 0;
+    
+    for (i = 0; i < watch_count; i++) {
+        if (stat(watch_paths[i].path, &st) != 0) {
+            changed = 1;
+        } else if (st.st_mtime != watch_paths[i].mtime) {
+            watch_paths[i].mtime = st.st_mtime;
+            changed = 1;
+        }
+    }
+    
+    return changed;
+}
+
+/* Run build command */
+static int run_build(void)
+{
+    pid_t pid;
+    int status;
+    
+    printf("\n[reload] Rebuilding...\n");
+    
+    pid = fork();
+    if (pid < 0) {
+        perror("fork");
+        return -1;
+    }
+    
+    if (pid == 0) {
+        execlp("cxo", "cxo", "build", NULL);
+        execl("./cxo", "./cxo", "build", NULL);
+        fprintf(stderr, "Error: cxo not found in PATH or current directory\n");
+        _exit(1);
+    }
+    
+    waitpid(pid, &status, 0);
+    
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+        printf("[reload] Build complete\n\n");
+        return 0;
+    } else {
+        printf("[reload] Build failed\n\n");
+        return -1;
+    }
+}
+
 /* Run development server */
 int cmd_serve(int port, int rebuild)
 {
@@ -490,12 +639,19 @@ int cmd_serve(int port, int rebuild)
     int opt;
     struct stat st;
     int sse_client = -1;
+    time_t last_check = 0;
     
     /* Check if public directory exists */
     if (stat(DEFAULT_ROOT, &st) != 0) {
         fprintf(stderr, "Error: %s/ directory not found\n", DEFAULT_ROOT);
         fprintf(stderr, "Run 'cxo build' first to generate the site.\n");
         return CXO_ERR_IO;
+    }
+    
+    /* Initialize file watching if rebuild enabled */
+    if (rebuild) {
+        init_file_watching();
+        setenv("CXO_HOTRELOAD", "1", 1);
     }
     
     /* Create socket */
@@ -544,7 +700,7 @@ int cmd_serve(int port, int rebuild)
     printf("CXO development server running at http://localhost:%d\n", port);
     printf("Serving directory: %s/\n", DEFAULT_ROOT);
     if (rebuild) {
-        printf("Auto-rebuild: enabled\n");
+        printf("Hot reload: enabled (watching content/, themes/, config.toml)\n");
     }
     printf("Press Ctrl+C to stop\n\n");
     
@@ -553,6 +709,7 @@ int cmd_serve(int port, int rebuild)
         fd_set readfds;
         struct timeval timeout;
         int ret;
+        time_t now;
         
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
@@ -568,6 +725,24 @@ int cmd_serve(int port, int rebuild)
             }
             perror("select");
             break;
+        }
+        
+        /* Check for file changes every 1 second */
+        if (rebuild) {
+            time(&now);
+            if (now - last_check >= 1) {
+                last_check = now;
+                if (sse_client >= 0 && !check_sse_client(sse_client)) {
+                    close(sse_client);
+                    sse_client = -1;
+                }
+                if (check_file_changes()) {
+                    init_file_watching();
+                    if (run_build() == 0 && sse_client >= 0) {
+                        send_reload_event(sse_client);
+                    }
+                }
+            }
         }
         
         if (ret == 0) {
