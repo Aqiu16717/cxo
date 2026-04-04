@@ -14,8 +14,6 @@
 static char* toml_string_or(const toml_table_t* tab, const char* key,
                              arena_t* arena, const char* def)
 {
-    const char* raw;
-    char* val;
     char* result;
     
     {
