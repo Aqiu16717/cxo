@@ -9,6 +9,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 #include <errno.h>
 #include "../include/cxo.h"
 
@@ -39,12 +41,55 @@ static int exec_cmd(const char* cmd, char* output, size_t size)
     return pclose(fp);
 }
 
+/* Run command via execvp to avoid shell injection */
+static int run_cmd(const char* argv[])
+{
+    pid_t pid;
+    int status;
+    
+    pid = fork();
+    if (pid < 0) {
+        return -1;
+    }
+    
+    if (pid == 0) {
+        execvp(argv[0], (char* const*)argv);
+        _exit(127);
+    }
+    
+    waitpid(pid, &status, 0);
+    
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    return -1;
+}
+
 /* Check if command exists */
 static int cmd_exists(const char* cmd)
 {
-    char check_cmd[256];
-    snprintf(check_cmd, sizeof(check_cmd), "which %s > /dev/null 2>&1", cmd);
-    return system(check_cmd) == 0;
+    const char* argv[] = {"which", cmd, NULL};
+    int devnull = open("/dev/null", O_WRONLY);
+    int saved_stderr = dup(STDERR_FILENO);
+    int saved_stdout = dup(STDOUT_FILENO);
+    int ret;
+    
+    if (devnull < 0) {
+        return 0;
+    }
+    
+    dup2(devnull, STDOUT_FILENO);
+    dup2(devnull, STDERR_FILENO);
+    close(devnull);
+    
+    ret = run_cmd(argv);
+    
+    dup2(saved_stdout, STDOUT_FILENO);
+    dup2(saved_stderr, STDERR_FILENO);
+    close(saved_stdout);
+    close(saved_stderr);
+    
+    return ret == 0;
 }
 
 /* Get git remote URL */
@@ -62,10 +107,11 @@ static int is_git_repo(void)
 /* Build site before deploy */
 static int build_site(void)
 {
+    const char* argv[] = {"./cxo", "build", NULL};
     printf("Building site...\n");
     /* Clean and rebuild to ensure no stale files */
     system("rm -rf public/");
-    if (system("./cxo build") != 0) {
+    if (run_cmd(argv) != 0) {
         fprintf(stderr, "Error: Build failed\n");
         return -1;
     }
@@ -94,16 +140,22 @@ static int deploy_to_gh_pages(void)
     printf("Deploying to gh-pages branch...\n");
     
     /* Check if gh-pages branch exists */
-    ret = system("git show-ref --verify --quiet refs/heads/gh-pages");
+    {
+        const char* check_argv[] = {"git", "show-ref", "--verify", "--quiet",
+                                    "refs/heads/gh-pages", NULL};
+        ret = run_cmd(check_argv);
+    }
     if (ret != 0) {
         /* Create orphan branch */
-        ret = system("git checkout --orphan gh-pages");
+        const char* orphan_argv[] = {"git", "checkout", "--orphan", "gh-pages", NULL};
+        ret = run_cmd(orphan_argv);
         if (ret != 0) {
             fprintf(stderr, "Error: Failed to create gh-pages branch\n");
             return -1;
         }
     } else {
-        ret = system("git checkout gh-pages");
+        const char* checkout_argv[] = {"git", "checkout", "gh-pages", NULL};
+        ret = run_cmd(checkout_argv);
         if (ret != 0) {
             fprintf(stderr, "Error: Failed to checkout gh-pages branch\n");
             return -1;
@@ -117,18 +169,22 @@ static int deploy_to_gh_pages(void)
     system("mv public/* . 2>/dev/null; mv public/.* . 2>/dev/null; rmdir public 2>/dev/null");
     
     /* Add all files */
-    ret = system("git add -A");
+    {
+        const char* add_argv[] = {"git", "add", "-A", NULL};
+        ret = run_cmd(add_argv);
+    }
     if (ret != 0) {
         fprintf(stderr, "Error: Failed to add files\n");
         goto cleanup;
     }
     
     /* Commit */
-    char commit_msg[512];
-    snprintf(commit_msg, sizeof(commit_msg),
-             "git commit -m \"Deploy: %s from %s\"",
-             commit_hash, current_branch);
-    ret = system(commit_msg);
+    {
+        char msg[256];
+        const char* commit_argv[] = {"git", "commit", "-m", msg, NULL};
+        snprintf(msg, sizeof(msg), "Deploy: %s from %s", commit_hash, current_branch);
+        ret = run_cmd(commit_argv);
+    }
     if (ret != 0) {
         /* No changes to commit */
         printf("No changes to deploy\n");
@@ -137,7 +193,10 @@ static int deploy_to_gh_pages(void)
     }
     
     /* Push */
-    ret = system("git push origin gh-pages");
+    {
+        const char* push_argv[] = {"git", "push", "origin", "gh-pages", NULL};
+        ret = run_cmd(push_argv);
+    }
     if (ret != 0) {
         fprintf(stderr, "Error: Failed to push to gh-pages\n");
         goto cleanup;
@@ -146,9 +205,10 @@ static int deploy_to_gh_pages(void)
     printf("Pushed to gh-pages branch\n");
     
     /* Switch back to original branch */
-    char checkout_cmd[256];
-    snprintf(checkout_cmd, sizeof(checkout_cmd), "git checkout %s", current_branch);
-    system(checkout_cmd);
+    {
+        const char* checkout_argv[] = {"git", "checkout", current_branch, NULL};
+        run_cmd(checkout_argv);
+    }
     
     printf("\n✓ Deployed successfully!\n");
     printf("Your site will be available at:\n");
@@ -160,9 +220,8 @@ static int deploy_to_gh_pages(void)
 cleanup:
     /* Try to switch back */
     {
-        char checkout_cmd[256];
-        snprintf(checkout_cmd, sizeof(checkout_cmd), "git checkout %s", current_branch);
-        system(checkout_cmd);
+        const char* checkout_argv[] = {"git", "checkout", current_branch, NULL};
+        run_cmd(checkout_argv);
     }
     return -1;
 }
