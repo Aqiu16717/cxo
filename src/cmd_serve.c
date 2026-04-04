@@ -363,6 +363,9 @@ static void handle_request(int client, const char* root, int* sse_client)
     /* Check for SSE endpoint */
     if (strcmp(decoded_uri, "/__cxo_reload") == 0) {
         send_sse_headers(client);
+        if (*sse_client >= 0 && *sse_client != client) {
+            close(*sse_client);
+        }
         *sse_client = client;
         return;
     }
