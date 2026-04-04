@@ -34,6 +34,24 @@ static const char* css_template =
     "  color: #333;\n"
     "}\n";
 
+/* Default index template */
+static const char* index_template =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"{{lang}}\">\n"
+    "<head>\n"
+    "<meta charset=\"UTF-8\">\n"
+    "<title>{{site_title}}</title>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "</head>\n"
+    "<body>\n"
+    "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
+    "<h1>{{site_title}}</h1>\n"
+    "<ul class=\"post-list\">\n"
+    "{{entry_list}}"
+    "</ul>\n"
+    "</body>\n"
+    "</html>\n";
+
 /* Default HTML template */
 static const char* html_template =
     "<!DOCTYPE html>\n"
@@ -145,6 +163,9 @@ static int create_theme_files(void)
     
     write_file("themes/default/post.html", html_template);
     printf("Created: themes/default/post.html\n");
+    
+    write_file("themes/default/index.html", index_template);
+    printf("Created: themes/default/index.html\n");
     return CXO_OK;
 }
 

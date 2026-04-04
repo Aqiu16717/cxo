@@ -33,6 +33,25 @@ static const char* hotreload_script =
     "})();\n"
     "</script>\n";
 
+/* Fallback index template */
+static const char* fallback_index_template =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"{{lang}}\">\n"
+    "<head>\n"
+    "<meta charset=\"UTF-8\">\n"
+    "<title>{{site_title}}</title>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "</head>\n"
+    "<body>\n"
+    "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
+    "<h1>{{site_title}}</h1>\n"
+    "<ul class=\"post-list\">\n"
+    "{{entry_list}}"
+    "</ul>\n"
+    "{{hotreload}}"
+    "</body>\n"
+    "</html>\n";
+
 /* Fallback inline template */
 static const char* fallback_template =
     "<!DOCTYPE html>\n"
@@ -256,6 +275,20 @@ static char* load_template(arena_t* arena, const char* theme_path)
     tmpl = read_file_to_arena(arena, path);
     if (!tmpl) {
         return arena_strdup(arena, fallback_template);
+    }
+    return tmpl;
+}
+
+/* Load index template */
+static char* load_index_template(arena_t* arena, const char* theme_path)
+{
+    char path[MAX_OUTPUT_PATH];
+    char* tmpl;
+    
+    snprintf(path, sizeof(path), "%s/index.html", theme_path);
+    tmpl = read_file_to_arena(arena, path);
+    if (!tmpl) {
+        return arena_strdup(arena, fallback_index_template);
     }
     return tmpl;
 }
@@ -671,16 +704,13 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
 
 /* Generate index page */
 static int render_index(cxo_context_t* ctx, arena_t* arena,
-                        const char* output_dir, const char* lang)
+                        const char* output_dir, const char* lang,
+                        const char* tmpl)
 {
     char path[MAX_OUTPUT_PATH];
     FILE* fp;
     char* entry_list;
-    const char* title;
-    const char* hotreload_html;
-    
-    title = ctx->site_title;
-    (void)get_output_subdir;
+    char* html;
     
     if (strcmp(lang, "en") == 0) {
         snprintf(path, sizeof(path), "%s/en/index.html", output_dir);
@@ -693,7 +723,12 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
         entry_list = "";
     }
     
-    hotreload_html = hotreload_enabled() ? hotreload_script : "";
+    html = replace_var(arena, tmpl, "lang", lang);
+    html = replace_var(arena, html, "site_title", ctx->site_title);
+    html = replace_var(arena, html, "site_description", ctx->site_description);
+    html = replace_var(arena, html, "entry_list", entry_list);
+    html = replace_var(arena, html, "hotreload",
+                       hotreload_enabled() ? hotreload_script : "");
     
     fp = fopen(path, "w");
     if (!fp) {
@@ -701,25 +736,7 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
         return CXO_ERR_IO;
     }
     
-    fprintf(fp,
-            "<!DOCTYPE html>\n"
-            "<html lang=\"%s\">\n"
-            "<head>\n"
-            "<meta charset=\"UTF-8\">\n"
-            "<title>%s</title>\n"
-            "<link rel=\"stylesheet\" href=\"/style.css\">\n"
-            "</head>\n"
-            "<body>\n"
-            "<nav><a href=\"/\">%s</a></nav>\n"
-            "<h1>%s</h1>\n"
-            "<ul class=\"post-list\">\n"
-            "%s"
-            "</ul>\n"
-            "%s"
-            "</body>\n"
-            "</html>\n",
-            lang, title, ctx->site_title, ctx->site_title, entry_list, hotreload_html);
-    
+    fprintf(fp, "%s", html);
     fclose(fp);
     printf("Generated: %s\n", path);
     return CXO_OK;
@@ -754,8 +771,11 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     }
     
     /* Generate index pages */
-    render_index(ctx, arena, output_dir, "zh");
-    render_index(ctx, arena, output_dir, "en");
+    {
+        char* index_tmpl = load_index_template(arena, ctx->theme_path);
+        render_index(ctx, arena, output_dir, "zh", index_tmpl);
+        render_index(ctx, arena, output_dir, "en", index_tmpl);
+    }
     
     /* Generate RSS feeds */
     render_rss(ctx, arena, output_dir, "zh");
