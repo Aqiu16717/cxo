@@ -220,7 +220,10 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     
     /* Parse frontmatter */
     body_start = file_content;
-    cxo_parse_frontmatter(entry, arena, file_content, &body_start);
+    if (cxo_parse_frontmatter(entry, arena, file_content, &body_start) != 0) {
+        fprintf(stderr, "Warning: Failed to parse frontmatter in %s\n",
+                filepath ? filepath : entry->md_content);
+    }
     
     /* Set defaults */
     if (!entry->title) {
