@@ -318,6 +318,87 @@ static int check_sse_client(int client)
     return 1;
 }
 
+/* Parse HTTP request line, returns 0 on success */
+static int parse_request_line(const char* buf, char* method, char* uri, int* is_head)
+{
+    char* query;
+    
+    if (sscanf(buf, "%15s %511s", method, uri) != 2) {
+        return -1;
+    }
+    
+    *is_head = (strcmp(method, "HEAD") == 0);
+    if (strcmp(method, "GET") != 0 && !*is_head) {
+        return -1;
+    }
+    
+    query = strchr(uri, '?');
+    if (query) {
+        *query = '\0';
+    }
+    
+    return 0;
+}
+
+/* Serve a file, directory, or .html fallback */
+static void serve_request_path(int client, const char* root,
+                               const char* decoded_uri, int is_head)
+{
+    char path[MAX_PATH];
+    struct stat st;
+    
+    if (decoded_uri[0] == '/') {
+        snprintf(path, sizeof(path), "%s%s", root, decoded_uri);
+    } else {
+        snprintf(path, sizeof(path), "%s/%s", root, decoded_uri);
+    }
+    
+    if (stat(path, &st) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+            char index_path[MAX_PATH];
+            int ret;
+            
+            ret = snprintf(index_path, sizeof(index_path),
+                           "%s/index.html", path);
+            if (ret < 0 || (size_t)ret >= sizeof(index_path)) {
+                send_directory_listing(client, root, decoded_uri);
+                return;
+            }
+            
+            if (stat(index_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
+                send_file_response_full(client, index_path, is_head);
+            } else if (is_head) {
+                send_response(client, 200, "OK", "text/html; charset=utf-8", NULL, 0);
+            } else {
+                send_directory_listing(client, root, decoded_uri);
+            }
+        } else {
+            send_file_response_full(client, path, is_head);
+        }
+        return;
+    }
+    
+    /* Try adding .html extension */
+    {
+        char html_path[MAX_PATH + 5];
+        int ret;
+        
+        ret = snprintf(html_path, sizeof(html_path), "%s.html", path);
+        if (ret < 0 || (size_t)ret >= sizeof(html_path)) {
+            send_response(client, 404, "Not Found", "text/html",
+                          "<h1>404 Not Found</h1>", 22);
+            return;
+        }
+        
+        if (stat(html_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
+            send_file_response_full(client, html_path, is_head);
+        } else {
+            send_response(client, 404, "Not Found", "text/html",
+                          "<h1>404 Not Found</h1>", 22);
+        }
+    }
+}
+
 /* Handle single HTTP request */
 static void handle_request(int client, const char* root, int* sse_client)
 {
@@ -325,10 +406,8 @@ static void handle_request(int client, const char* root, int* sse_client)
     char method[16];
     char uri[MAX_PATH];
     char decoded_uri[MAX_PATH];
-    char path[MAX_PATH];
-    char* query;
     ssize_t n;
-    struct stat st;
+    int is_head;
     
     n = recv(client, buf, sizeof(buf) - 1, 0);
     if (n <= 0) {
@@ -336,28 +415,12 @@ static void handle_request(int client, const char* root, int* sse_client)
     }
     buf[n] = '\0';
     
-    /* Parse request line */
-    if (sscanf(buf, "%15s %511s", method, uri) != 2) {
+    if (parse_request_line(buf, method, uri, &is_head) != 0) {
         send_response(client, 400, "Bad Request", "text/html",
                       "<h1>400 Bad Request</h1>", 24);
         return;
     }
     
-    /* Only support GET and HEAD */
-    int is_head = (strcmp(method, "HEAD") == 0);
-    if (strcmp(method, "GET") != 0 && !is_head) {
-        send_response(client, 405, "Method Not Allowed", "text/html",
-                      "<h1>405 Method Not Allowed</h1>", 30);
-        return;
-    }
-    
-    /* Strip query string from URI */
-    query = strchr(uri, '?');
-    if (query) {
-        *query = '\0';
-    }
-    
-    /* URL decode */
     url_decode(decoded_uri, uri, sizeof(decoded_uri));
     
     /* Check for SSE endpoint */
@@ -377,57 +440,7 @@ static void handle_request(int client, const char* root, int* sse_client)
         return;
     }
     
-    /* Build file path */
-    if (decoded_uri[0] == '/') {
-        snprintf(path, sizeof(path), "%s%s", root, decoded_uri);
-    } else {
-        snprintf(path, sizeof(path), "%s/%s", root, decoded_uri);
-    }
-    
-    /* Try to serve file */
-    if (stat(path, &st) == 0) {
-        if (S_ISDIR(st.st_mode)) {
-            char index_path[MAX_PATH];
-            int ret;
-            
-            ret = snprintf(index_path, sizeof(index_path),
-                           "%s/index.html", path);
-            if (ret < 0 || (size_t)ret >= sizeof(index_path)) {
-                send_directory_listing(client, root, decoded_uri);
-                return;
-            }
-            
-            if (stat(index_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
-                send_file_response_full(client, index_path, is_head);
-            } else {
-                if (is_head) {
-                    send_response(client, 200, "OK", "text/html; charset=utf-8", NULL, 0);
-                } else {
-                    send_directory_listing(client, root, decoded_uri);
-                }
-            }
-        } else {
-            send_file_response_full(client, path, is_head);
-        }
-    } else {
-        /* Try adding .html extension */
-        char html_path[MAX_PATH + 5];
-        int ret;
-        
-        ret = snprintf(html_path, sizeof(html_path), "%s.html", path);
-        if (ret < 0 || (size_t)ret >= sizeof(html_path)) {
-            send_response(client, 404, "Not Found", "text/html",
-                          "<h1>404 Not Found</h1>", 22);
-            return;
-        }
-        
-        if (stat(html_path, &st) == 0 && !S_ISDIR(st.st_mode)) {
-            send_file_response_full(client, html_path, is_head);
-        } else {
-            send_response(client, 404, "Not Found", "text/html",
-                          "<h1>404 Not Found</h1>", 22);
-        }
-    }
+    serve_request_path(client, root, decoded_uri, is_head);
 }
 
 /* Generate directory listing HTML */
@@ -631,48 +644,26 @@ static int run_build(void)
     }
 }
 
-/* Run development server */
-int cmd_serve(int port, int rebuild)
+/* Create and bind server socket */
+static int setup_server_socket(int port)
 {
     int server_fd;
-    int client_fd;
     struct sockaddr_in server_addr;
-    struct sockaddr_in client_addr;
-    socklen_t client_len;
     int opt;
-    struct stat st;
-    int sse_client = -1;
-    time_t last_check = 0;
     
-    /* Check if public directory exists */
-    if (stat(DEFAULT_ROOT, &st) != 0) {
-        fprintf(stderr, "Error: %s/ directory not found\n", DEFAULT_ROOT);
-        fprintf(stderr, "Run 'cxo build' first to generate the site.\n");
-        return CXO_ERR_IO;
-    }
-    
-    /* Initialize file watching if rebuild enabled */
-    if (rebuild) {
-        init_file_watching();
-        setenv("CXO_HOTRELOAD", "1", 1);
-    }
-    
-    /* Create socket */
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         perror("socket");
-        return CXO_ERR_IO;
+        return -1;
     }
     
-    /* Allow address reuse */
     opt = 1;
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
         perror("setsockopt");
         close(server_fd);
-        return CXO_ERR_IO;
+        return -1;
     }
     
-    /* Bind address */
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -681,17 +672,21 @@ int cmd_serve(int port, int rebuild)
     if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("bind");
         close(server_fd);
-        return CXO_ERR_IO;
+        return -1;
     }
     
-    /* Listen */
     if (listen(server_fd, 10) < 0) {
         perror("listen");
         close(server_fd);
-        return CXO_ERR_IO;
+        return -1;
     }
     
-    /* Set up signal handlers */
+    return server_fd;
+}
+
+/* Set up signal handlers */
+static void setup_signals(void)
+{
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = signal_handler;
@@ -699,20 +694,53 @@ int cmd_serve(int port, int rebuild)
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
-    
-    printf("CXO development server running at http://localhost:%d\n", port);
-    printf("Serving directory: %s/\n", DEFAULT_ROOT);
-    if (rebuild) {
-        printf("Hot reload: enabled (watching content/, themes/, config.toml)\n");
+}
+
+/* Handle a single accepted client connection */
+static void handle_client(int client_fd, int* sse_client)
+{
+    handle_request(client_fd, DEFAULT_ROOT, sse_client);
+    if (*sse_client != client_fd) {
+        close(client_fd);
     }
-    printf("Press Ctrl+C to stop\n\n");
+}
+
+/* Check for file changes and trigger reload */
+static void maybe_reload(int* sse_client, time_t* last_check)
+{
+    time_t now;
     
-    /* Server loop */
+    time(&now);
+    if (now - *last_check < 1) {
+        return;
+    }
+    *last_check = now;
+    
+    if (*sse_client >= 0 && !check_sse_client(*sse_client)) {
+        close(*sse_client);
+        *sse_client = -1;
+    }
+    
+    if (check_file_changes()) {
+        init_file_watching();
+        if (run_build() == 0 && *sse_client >= 0) {
+            send_reload_event(*sse_client);
+        }
+    }
+}
+
+/* Main server select loop */
+static void server_loop(int server_fd, int rebuild, int* sse_client)
+{
+    time_t last_check = 0;
+    
     while (server_running) {
         fd_set readfds;
         struct timeval timeout;
         int ret;
-        time_t now;
+        int client_fd;
+        struct sockaddr_in client_addr;
+        socklen_t client_len;
         
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
@@ -730,22 +758,8 @@ int cmd_serve(int port, int rebuild)
             break;
         }
         
-        /* Check for file changes every 1 second */
         if (rebuild) {
-            time(&now);
-            if (now - last_check >= 1) {
-                last_check = now;
-                if (sse_client >= 0 && !check_sse_client(sse_client)) {
-                    close(sse_client);
-                    sse_client = -1;
-                }
-                if (check_file_changes()) {
-                    init_file_watching();
-                    if (run_build() == 0 && sse_client >= 0) {
-                        send_reload_event(sse_client);
-                    }
-                }
-            }
+            maybe_reload(sse_client, &last_check);
         }
         
         if (ret == 0) {
@@ -756,26 +770,54 @@ int cmd_serve(int port, int rebuild)
             continue;
         }
         
-        /* Accept connection */
         client_len = sizeof(client_addr);
         client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
         
         if (client_fd < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
                 continue;
             }
             perror("accept");
             continue;
         }
         
-        handle_request(client_fd, DEFAULT_ROOT, &sse_client);
-        if (sse_client != client_fd) {
-            close(client_fd);
-        }
+        handle_client(client_fd, sse_client);
     }
+}
+
+/* Run development server */
+int cmd_serve(int port, int rebuild)
+{
+    int server_fd;
+    struct stat st;
+    int sse_client = -1;
+    
+    if (stat(DEFAULT_ROOT, &st) != 0) {
+        fprintf(stderr, "Error: %s/ directory not found\n", DEFAULT_ROOT);
+        fprintf(stderr, "Run 'cxo build' first to generate the site.\n");
+        return CXO_ERR_IO;
+    }
+    
+    if (rebuild) {
+        init_file_watching();
+        setenv("CXO_HOTRELOAD", "1", 1);
+    }
+    
+    server_fd = setup_server_socket(port);
+    if (server_fd < 0) {
+        return CXO_ERR_IO;
+    }
+    
+    setup_signals();
+    
+    printf("CXO development server running at http://localhost:%d\n", port);
+    printf("Serving directory: %s/\n", DEFAULT_ROOT);
+    if (rebuild) {
+        printf("Hot reload: enabled (watching content/, themes/, config.toml)\n");
+    }
+    printf("Press Ctrl+C to stop\n\n");
+    
+    server_loop(server_fd, rebuild, &sse_client);
     
     printf("\nShutting down server...\n");
     if (sse_client >= 0) {
