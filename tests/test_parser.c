@@ -56,6 +56,9 @@ int main(void)
     printf("  title: %s\n", entry->title ? entry->title : "(null)");
     printf("  date: %s\n", entry->date ? entry->date : "(null)");
     printf("  slug: %s\n", entry->slug ? entry->slug : "(null)");
+    printf("  description: %s\n",
+           entry->description ? entry->description : "(null)");
+    printf("  tags: %zu\n", entry->tag_count);
     
     /* Verify HTML content was generated */
     if (!entry->html_content) {

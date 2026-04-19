@@ -77,6 +77,83 @@ static char* trim(char* str)
     return str;
 }
 
+/* Parse comma-separated tags */
+static int parse_tags(cxo_entry_t* entry, arena_t* arena, const char* value)
+{
+    char* buf;
+    char* p;
+    char* start;
+    size_t count;
+    size_t i;
+    size_t len;
+    char** tags;
+    
+    if (!value || !*value) {
+        entry->tags = NULL;
+        entry->tag_count = 0;
+        return CXO_OK;
+    }
+    
+    len = strlen(value);
+    buf = arena_alloc(arena, len + 1);
+    if (!buf) {
+        return CXO_ERR_NOMEM;
+    }
+    memcpy(buf, value, len + 1);
+    
+    /* Strip surrounding [] if present */
+    p = buf;
+    while (isspace((unsigned char)*p)) {
+        p++;
+    }
+    if (*p == '[') {
+        char* endp;
+        p++;
+        endp = buf + len - 1;
+        while (endp > p && isspace((unsigned char)*endp)) {
+            endp--;
+        }
+        if (*endp == ']') {
+            *endp = '\0';
+        }
+    }
+    
+    /* Count commas to determine max tags */
+    count = 1;
+    for (i = 0; p[i]; i++) {
+        if (p[i] == ',') {
+            count++;
+        }
+    }
+    
+    tags = arena_calloc_count(arena, count, sizeof(char*));
+    if (!tags) {
+        return CXO_ERR_NOMEM;
+    }
+    
+    /* Split by comma */
+    count = 0;
+    start = p;
+    while (*start) {
+        char* comma = strchr(start, ',');
+        if (comma) {
+            *comma = '\0';
+        }
+        tags[count] = arena_strdup(arena, trim(start));
+        if (tags[count] && strlen(tags[count]) > 0) {
+            count++;
+        }
+        if (!comma) {
+            break;
+        }
+        start = comma + 1;
+    }
+    
+    entry->tags = tags;
+    entry->tag_count = count;
+    return CXO_OK;
+}
+
 /* Parse a single front-matter line: "key: value" */
 static int parse_frontmatter_line(cxo_entry_t* entry, arena_t* arena,
                                   const char* line)
@@ -120,6 +197,10 @@ static int parse_frontmatter_line(cxo_entry_t* entry, arena_t* arena,
         } else {
             entry->draft = 0;
         }
+    } else if (strcmp(key, "description") == 0) {
+        entry->description = arena_strdup(arena, value);
+    } else if (strcmp(key, "tags") == 0) {
+        parse_tags(entry, arena, value);
     }
     
     return CXO_OK;

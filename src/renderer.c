@@ -11,10 +11,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include <ctype.h>
 #include "../include/cxo.h"
 
 #define MAX_OUTPUT_PATH 4096
 #define MAX_TEMPLATE_SIZE (256 * 1024)
+#define EXCERPT_MAX_LEN 150
 
 /* Hot reload script - injected when CXO_HOTRELOAD=1 */
 static const char* hotreload_script =
@@ -32,6 +34,25 @@ static const char* hotreload_script =
     "  };\n"
     "})();\n"
     "</script>\n";
+
+/* Fallback tag template */
+static const char* fallback_tag_template =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"{{lang}}\">\n"
+    "<head>\n"
+    "<meta charset=\"UTF-8\">\n"
+    "<title>{{site_title}} - {{tag_name}}</title>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "</head>\n"
+    "<body>\n"
+    "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
+    "<h1>{{tag_name}}</h1>\n"
+    "<ul class=\"post-list\">\n"
+    "{{entry_list}}"
+    "</ul>\n"
+    "{{hotreload}}"
+    "</body>\n"
+    "</html>\n";
 
 /* Fallback index template */
 static const char* fallback_index_template =
@@ -67,6 +88,8 @@ static const char* fallback_template =
     "<article>\n"
     "<h1>{{title}}</h1>\n"
     "<div class=\"meta\">{{date}}</div>\n"
+    "<div class=\"tags\">{{tags}}</div>\n"
+    "<div class=\"description\">{{description}}</div>\n"
     "<div class=\"content\">{{content}}</div>\n"
     "</article>\n"
     "<footer><p>{{site_description}}</p></footer>\n"
@@ -279,6 +302,20 @@ static char* load_template(arena_t* arena, const char* theme_path)
     return tmpl;
 }
 
+/* Load tag template */
+static char* load_tag_template(arena_t* arena, const char* theme_path)
+{
+    char path[MAX_OUTPUT_PATH];
+    char* tmpl;
+    
+    snprintf(path, sizeof(path), "%s/tag.html", theme_path);
+    tmpl = read_file_to_arena(arena, path);
+    if (!tmpl) {
+        return arena_strdup(arena, fallback_tag_template);
+    }
+    return tmpl;
+}
+
 /* Load index template */
 static char* load_index_template(arena_t* arena, const char* theme_path)
 {
@@ -324,14 +361,21 @@ static int hotreload_enabled(void)
     return getenv("CXO_HOTRELOAD") != NULL;
 }
 
+/* Forward declarations */
+static char* build_tag_links(cxo_entry_t* entry, arena_t* arena);
+
 /* Generate HTML */
 static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
                            arena_t* arena, const char* tmpl)
 {
     char* html;
     char* lang_switch;
+    char* tag_links;
+    const char* description;
     
     lang_switch = build_lang_switch(arena, entry);
+    tag_links = build_tag_links(entry, arena);
+    description = entry->description ? entry->description : "";
     
     html = replace_var(arena, tmpl, "title", entry->title);
     if (!html) {
@@ -350,6 +394,14 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
         return NULL;
     }
     html = replace_var(arena, html, "nav_lang_switch", lang_switch);
+    if (!html) {
+        return NULL;
+    }
+    html = replace_var(arena, html, "tags", tag_links);
+    if (!html) {
+        return NULL;
+    }
+    html = replace_var(arena, html, "description", description);
     if (!html) {
         return NULL;
     }
@@ -452,20 +504,127 @@ static size_t calc_list_len(cxo_context_t* ctx, const char* lang,
         if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
-        total_len += 100 + strlen(entry->slug) + strlen(entry->title) +
+        total_len += 300 + strlen(entry->slug) + strlen(entry->title) +
                      strlen(entry->date);
     }
     return total_len;
 }
 
+/* Build excerpt from description or HTML content */
+static char* build_excerpt(cxo_entry_t* entry, arena_t* arena)
+{
+    const char* src;
+    char* excerpt;
+    size_t src_len;
+    size_t i;
+    size_t j;
+    int in_tag;
+    
+    if (entry->description && strlen(entry->description) > 0) {
+        return arena_strdup(arena, entry->description);
+    }
+    
+    src = entry->html_content ? entry->html_content : "";
+    src_len = strlen(src);
+    
+    excerpt = arena_alloc(arena, src_len + 4);
+    if (!excerpt) {
+        return NULL;
+    }
+    
+    j = 0;
+    in_tag = 0;
+    for (i = 0; i < src_len && j < EXCERPT_MAX_LEN; i++) {
+        if (src[i] == '<') {
+            in_tag = 1;
+        } else if (src[i] == '>') {
+            in_tag = 0;
+        } else if (!in_tag) {
+            excerpt[j++] = src[i];
+        }
+    }
+    excerpt[j] = '\0';
+    
+    if (i < src_len) {
+        if (j > 0 && !isspace((unsigned char)excerpt[j - 1])) {
+            size_t k = j;
+            while (k > 0 && k > j - 20) {
+                if (isspace((unsigned char)excerpt[k - 1])) {
+                    break;
+                }
+                k--;
+            }
+            if (k > 0) {
+                j = k;
+            }
+        }
+        excerpt[j] = '\0';
+        strcpy(excerpt + j, "...");
+    }
+    
+    while (j > 0 && isspace((unsigned char)excerpt[j - 1])) {
+        excerpt[--j] = '\0';
+    }
+    
+    return excerpt;
+}
+
+/* Build tag links HTML for a post */
+static char* build_tag_links(cxo_entry_t* entry, arena_t* arena)
+{
+    size_t i;
+    size_t total_len;
+    char* buf;
+    size_t offset;
+    const char* tag_prefix;
+    
+    if (entry->tag_count == 0) {
+        return arena_strdup(arena, "");
+    }
+    
+    tag_prefix = (strcmp(entry->lang, "en") == 0) ? "/en/tags/" : "/tags/";
+    
+    total_len = 32;
+    for (i = 0; i < entry->tag_count; i++) {
+        total_len += strlen(tag_prefix) + strlen(entry->tags[i]) * 2 + 32;
+    }
+    
+    buf = arena_alloc(arena, total_len);
+    if (!buf) {
+        return NULL;
+    }
+    
+    offset = 0;
+    
+    for (i = 0; i < entry->tag_count; i++) {
+        if (i > 0) {
+            offset += snprintf(buf + offset, total_len - offset, " ");
+        }
+        offset += snprintf(buf + offset, total_len - offset,
+                           "<a href=\"%s%s.html\">%s</a>",
+                           tag_prefix, entry->tags[i], entry->tags[i]);
+    }
+    
+    return buf;
+}
+
 /* Append a single entry link to the list buffer */
 static void append_entry_link(char* buf, size_t total_len, size_t* offset,
-                              cxo_entry_t* entry)
+                              cxo_entry_t* entry, arena_t* arena)
 {
     const char* subdir = get_output_subdir(entry->lang);
-    int written = snprintf(buf + *offset, total_len - *offset,
-                           "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
-                           subdir, entry->slug, entry->title, entry->date);
+    char* excerpt;
+    int written;
+    
+    excerpt = build_excerpt(entry, arena);
+    if (!excerpt) {
+        excerpt = "";
+    }
+    
+    written = snprintf(buf + *offset, total_len - *offset,
+                       "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span><div class=\"excerpt\">%s</div></li>\n",
+                       subdir, entry->slug, entry->title, entry->date,
+                       excerpt);
     if (written > 0) {
         *offset += written;
     }
@@ -502,7 +661,7 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
         if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
-        append_entry_link(list_html, total_len, &offset, entry);
+        append_entry_link(list_html, total_len, &offset, entry, arena);
     }
     
     return list_html;
@@ -752,6 +911,165 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
     return CXO_OK;
 }
 
+#define MAX_UNIQUE_TAGS 256
+
+/* Collect unique tags across all entries */
+static size_t collect_unique_tags(cxo_context_t* ctx, char** tags_out)
+{
+    size_t i, j, k;
+    size_t count = 0;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        for (j = 0; j < entry->tag_count; j++) {
+            char* tag = entry->tags[j];
+            int found = 0;
+            for (k = 0; k < count; k++) {
+                if (strcmp(tags_out[k], tag) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found && count < MAX_UNIQUE_TAGS) {
+                tags_out[count++] = tag;
+            }
+        }
+    }
+    return count;
+}
+
+/* Build entry list for a specific tag and language */
+static char* build_tag_entry_list(cxo_context_t* ctx, arena_t* arena,
+                                  const char* tag, const char* lang)
+{
+    size_t i, j;
+    size_t total_len = 256;
+    char* list_html;
+    size_t offset;
+    int found = 0;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        int has_tag = 0;
+        
+        if (strcmp(entry->lang, lang) != 0 || entry->draft) {
+            continue;
+        }
+        
+        for (j = 0; j < entry->tag_count; j++) {
+            if (strcmp(entry->tags[j], tag) == 0) {
+                has_tag = 1;
+                break;
+            }
+        }
+        
+        if (has_tag) {
+            found = 1;
+            total_len += 100 + strlen(entry->slug) + strlen(entry->title) +
+                         strlen(entry->date);
+        }
+    }
+    
+    if (!found) {
+        return NULL;
+    }
+    
+    list_html = arena_alloc(arena, total_len);
+    if (!list_html) {
+        return NULL;
+    }
+    
+    list_html[0] = '\0';
+    offset = 0;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        int has_tag = 0;
+        
+        if (strcmp(entry->lang, lang) != 0 || entry->draft) {
+            continue;
+        }
+        
+        for (j = 0; j < entry->tag_count; j++) {
+            if (strcmp(entry->tags[j], tag) == 0) {
+                has_tag = 1;
+                break;
+            }
+        }
+        
+        if (has_tag) {
+            const char* subdir = get_output_subdir(entry->lang);
+            int written = snprintf(list_html + offset, total_len - offset,
+                                   "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
+                                   subdir, entry->slug, entry->title,
+                                   entry->date);
+            if (written > 0) {
+                offset += written;
+            }
+        }
+    }
+    
+    return list_html;
+}
+
+/* Render a single tag page */
+static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
+                           const char* output_dir, const char* lang,
+                           const char* tag, const char* tmpl)
+{
+    char path[MAX_OUTPUT_PATH];
+    char* list_html;
+    char* html;
+    FILE* fp;
+    const char* subdir;
+    
+    list_html = build_tag_entry_list(ctx, arena, tag, lang);
+    if (!list_html) {
+        return CXO_OK;
+    }
+    
+    subdir = (strcmp(lang, "en") == 0) ? "en/tags" : "tags";
+    snprintf(path, sizeof(path), "%s/%s", output_dir, subdir);
+    if (ensure_dir(path) != CXO_OK) {
+        return CXO_ERR_IO;
+    }
+    
+    html = replace_var(arena, tmpl, "lang", lang);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "site_title", ctx->site_title);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "site_description", ctx->site_description);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "tag_name", tag);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "entry_list", list_html);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "hotreload",
+                       hotreload_enabled() ? hotreload_script : "");
+    
+    snprintf(path, sizeof(path), "%s/%s/%s.html", output_dir, subdir, tag);
+    fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Cannot write %s\n", path);
+        return CXO_ERR_IO;
+    }
+    
+    fprintf(fp, "%s", html);
+    fclose(fp);
+    printf("Generated: %s\n", path);
+    return CXO_OK;
+}
+
 /* Generate index page */
 static int render_index(cxo_context_t* ctx, arena_t* arena,
                         const char* output_dir, const char* lang,
@@ -843,6 +1161,22 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
         char* index_tmpl = load_index_template(arena, ctx->theme_path);
         render_index(ctx, arena, output_dir, "zh", index_tmpl);
         render_index(ctx, arena, output_dir, "en", index_tmpl);
+    }
+    
+    /* Generate tag pages */
+    {
+        char* tag_tmpl = load_tag_template(arena, ctx->theme_path);
+        char* unique_tags[MAX_UNIQUE_TAGS];
+        size_t tag_count;
+        size_t t;
+        
+        tag_count = collect_unique_tags(ctx, unique_tags);
+        for (t = 0; t < tag_count; t++) {
+            render_tag_page(ctx, arena, output_dir, "zh", unique_tags[t],
+                            tag_tmpl);
+            render_tag_page(ctx, arena, output_dir, "en", unique_tags[t],
+                            tag_tmpl);
+        }
     }
     
     /* Generate RSS feeds */

@@ -6,3 +6,24 @@ body {
   line-height: 1.6;
   color: #333;
 }
+
+.tags a {
+  margin-right: 8px;
+  padding: 2px 8px;
+  background: #f0f0f0;
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 0.9em;
+}
+
+.excerpt {
+  color: #666;
+  font-size: 0.95em;
+  margin-top: 4px;
+}
+
+.description {
+  color: #555;
+  font-style: italic;
+  margin: 10px 0;
+}

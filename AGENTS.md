@@ -46,7 +46,9 @@ cxo version            # or: cxo -v
 ## Features
 
 - **Bilingual**: Hardcoded `zh`/`en` routing with `peer` entry linking
-- **Templates**: `themes/default/post.html` and `themes/default/index.html`
+- **Templates**: `themes/default/post.html`, `themes/default/index.html`, and `themes/default/tag.html`
+  - Template variables: `{{title}}`, `{{date}}`, `{{content}}`, `{{tags}}`, `{{description}}`, `{{lang}}`, `{{nav_lang_switch}}`, `{{site_title}}`, `{{site_description}}`, `{{hotreload}}`
+  - Tag template additionally supports: `{{tag_name}}`, `{{entry_list}}`
 - **Hot reload**: `cxo serve -w` watches `content/`, `themes/`, `config.toml`
 - **Draft mode**: Skip drafts unless `CXO_DRAFT=1` is set
 - **RSS**: Generates `public/rss.xml` and `public/en/rss.xml`
@@ -62,10 +64,15 @@ Markdown files require YAML frontmatter; `id` links translations:
 id: hello
 title: Article Title
 date: 2026-03-19
+description: Short excerpt for index page
+tags: [tag1, tag2]
 ---
 
 Content here...
 ```
+
+- `description` - Shown on index page and post page; auto-generated from content if omitted
+- `tags` - Comma-separated list; generates tag pages and links on posts
 
 ## Error Codes
 

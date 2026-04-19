@@ -26,6 +26,9 @@ typedef struct cxo_entry {
     char* md_content;       /* Raw markdown content (file path) */
     struct cxo_entry* peer; /* Pointer to translation in other language */
     int draft;              /* Draft flag: 1 = draft, 0 = published */
+    char* description;      /* Post description/excerpt */
+    char** tags;            /* Tag array */
+    size_t tag_count;       /* Number of tags */
 } cxo_entry_t;
 
 /* Site-wide context */
