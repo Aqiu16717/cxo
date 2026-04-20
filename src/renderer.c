@@ -91,6 +91,7 @@ static const char* fallback_template =
     "<div class=\"tags\">{{tags}}</div>\n"
     "<div class=\"description\">{{description}}</div>\n"
     "<div class=\"content\">{{content}}</div>\n"
+    "<nav class=\"post-nav\">{{prev}}{{next}}</nav>\n"
     "</article>\n"
     "<footer><p>{{site_description}}</p></footer>\n"
     "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>\n"
@@ -288,6 +289,64 @@ static const char* get_output_subdir(const char* lang)
     return (strcmp(lang, "en") == 0) ? "en/posts" : "posts";
 }
 
+/* Build prev/next navigation link */
+static char* build_nav_link(arena_t* arena, cxo_entry_t* entry,
+                            const char* rel_class)
+{
+    char buf[512];
+    const char* subdir;
+    
+    if (!entry) {
+        return arena_strdup(arena, "");
+    }
+    
+    subdir = get_output_subdir(entry->lang);
+    snprintf(buf, sizeof(buf),
+             "<a href=\"/%s/%s.html\" class=\"%s\">%s</a>",
+             subdir, entry->slug, rel_class, entry->title);
+    return arena_strdup(arena, buf);
+}
+
+/* Assign prev/next post pointers by date within same language */
+static void assign_prev_next(cxo_context_t* ctx)
+{
+    size_t i, j;
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        cxo_entry_t* prev_entry = NULL;
+        cxo_entry_t* next_entry = NULL;
+        
+        if (!entry->date) {
+            continue;
+        }
+        
+        for (j = 0; j < ctx->count; j++) {
+            cxo_entry_t* other = ctx->entries[j];
+            
+            if (i == j || !other->date) {
+                continue;
+            }
+            if (strcmp(entry->lang, other->lang) != 0) {
+                continue;
+            }
+            
+            if (strcmp(other->date, entry->date) < 0) {
+                if (!prev_entry || strcmp(other->date, prev_entry->date) > 0) {
+                    prev_entry = other;
+                }
+            } else if (strcmp(other->date, entry->date) > 0) {
+                if (!next_entry || strcmp(other->date, next_entry->date) < 0) {
+                    next_entry = other;
+                }
+            }
+        }
+        
+        entry->prev = prev_entry;
+        entry->next = next_entry;
+    }
+}
+
 /* Load template */
 static char* load_template(arena_t* arena, const char* theme_path)
 {
@@ -402,6 +461,16 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
         return NULL;
     }
     html = replace_var(arena, html, "description", description);
+    if (!html) {
+        return NULL;
+    }
+    html = replace_var(arena, html, "prev",
+                       build_nav_link(arena, entry->prev, "prev"));
+    if (!html) {
+        return NULL;
+    }
+    html = replace_var(arena, html, "next",
+                       build_nav_link(arena, entry->next, "next"));
     if (!html) {
         return NULL;
     }
@@ -1146,6 +1215,9 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     if (CXO_IS_ERR(rc)) {
         fprintf(stderr, "Warning: Failed to copy theme assets\n");
     }
+    
+    /* Assign prev/next navigation links */
+    assign_prev_next(ctx);
     
     /* Render individual entries */
     success = 0;

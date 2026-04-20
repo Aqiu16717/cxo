@@ -27,3 +27,25 @@ body {
   font-style: italic;
   margin: 10px 0;
 }
+
+.post-nav {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2em;
+  padding-top: 1em;
+  border-top: 1px solid #eee;
+}
+
+.post-nav a {
+  text-decoration: none;
+  color: #666;
+  font-size: 0.95em;
+}
+
+.post-nav .prev::before {
+  content: "← ";
+}
+
+.post-nav .next::after {
+  content: " →";
+}

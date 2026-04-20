@@ -47,7 +47,7 @@ cxo version            # or: cxo -v
 
 - **Bilingual**: Hardcoded `zh`/`en` routing with `peer` entry linking
 - **Templates**: `themes/default/post.html`, `themes/default/index.html`, and `themes/default/tag.html`
-  - Template variables: `{{title}}`, `{{date}}`, `{{content}}`, `{{tags}}`, `{{description}}`, `{{lang}}`, `{{nav_lang_switch}}`, `{{site_title}}`, `{{site_description}}`, `{{hotreload}}`
+  - Template variables: `{{title}}`, `{{date}}`, `{{content}}`, `{{tags}}`, `{{description}}`, `{{lang}}`, `{{nav_lang_switch}}`, `{{site_title}}`, `{{site_description}}`, `{{hotreload}}`, `{{prev}}`, `{{next}}`
   - Tag template additionally supports: `{{tag_name}}`, `{{entry_list}}`
 - **Hot reload**: `cxo serve -w` watches `content/`, `themes/`, `config.toml`
 - **Draft mode**: Skip drafts unless `CXO_DRAFT=1` is set

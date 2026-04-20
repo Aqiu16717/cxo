@@ -29,6 +29,8 @@ typedef struct cxo_entry {
     char* description;      /* Post description/excerpt */
     char** tags;            /* Tag array */
     size_t tag_count;       /* Number of tags */
+    struct cxo_entry* prev; /* Previous post by date (same lang) */
+    struct cxo_entry* next; /* Next post by date (same lang) */
 } cxo_entry_t;
 
 /* Site-wide context */
