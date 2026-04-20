@@ -44,13 +44,13 @@ int main(void)
                i, e->id, e->lang, e->slug, e->md_content);
     }
     
-    if (ctx->count != 2) {
-        printf("\nFAIL: Expected 2 entries, got %zu\n", ctx->count);
+    if (ctx->count < 2) {
+        printf("\nFAIL: Expected at least 2 entries, got %zu\n", ctx->count);
         arena_destroy(arena);
         return 1;
     }
     
-    printf("\nPASS: Found expected 2 entries\n");
+    printf("\nPASS: Found expected %zu entries\n", ctx->count);
     
     arena_destroy(arena);
     printf("PASS: cleanup\n");

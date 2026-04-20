@@ -2,6 +2,7 @@
 #include "include/arena.h"
 #include "include/cxo.h"
 #include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 
 int main(void)
@@ -76,6 +77,96 @@ int main(void)
         return 1;
     }
     printf("  Found: public/en/posts/hello.html\n");
+    
+    if (stat("public/posts/second.html", &st) != 0) {
+        printf("FAIL: public/posts/second.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/posts/second.html\n");
+    
+    if (stat("public/en/posts/second.html", &st) != 0) {
+        printf("FAIL: public/en/posts/second.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/en/posts/second.html\n");
+    
+    /* Verify tag pages exist */
+    if (stat("public/tags/cxo.html", &st) != 0) {
+        printf("FAIL: public/tags/cxo.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/tags/cxo.html\n");
+    
+    if (stat("public/tags/welcome.html", &st) != 0) {
+        printf("FAIL: public/tags/welcome.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/tags/welcome.html\n");
+    
+    if (stat("public/tags/next.html", &st) != 0) {
+        printf("FAIL: public/tags/next.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/tags/next.html\n");
+    
+    /* Verify prev/next navigation */
+    {
+        FILE* fp;
+        char buf[4096];
+        size_t n;
+        
+        fp = fopen("public/posts/second.html", "r");
+        if (!fp) {
+            printf("FAIL: cannot read public/posts/second.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        n = fread(buf, 1, sizeof(buf) - 1, fp);
+        buf[n] = '\0';
+        fclose(fp);
+        
+        if (strstr(buf, "class=\"prev\"") == NULL) {
+            printf("FAIL: missing prev nav in second.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found prev nav in second.html\n");
+        
+        if (strstr(buf, "Hello World") == NULL) {
+            printf("FAIL: prev link target not found in second.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found prev link target (Hello World)\n");
+    }
+    
+    {
+        FILE* fp;
+        char buf[4096];
+        size_t n;
+        
+        fp = fopen("public/posts/hello.html", "r");
+        if (!fp) {
+            printf("FAIL: cannot read public/posts/hello.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        n = fread(buf, 1, sizeof(buf) - 1, fp);
+        buf[n] = '\0';
+        fclose(fp);
+        
+        if (strstr(buf, "class=\"next\"") == NULL) {
+            printf("FAIL: missing next nav in hello.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found next nav in hello.html\n");
+    }
     
     arena_destroy(arena);
     printf("\nPASS: cleanup\n");

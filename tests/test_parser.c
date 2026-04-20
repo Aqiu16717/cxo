@@ -38,8 +38,19 @@ int main(void)
     }
     printf("PASS: scanned %zu entries\n", ctx->count);
     
-    /* Test parsing first entry */
-    entry = ctx->entries[0];
+    /* Find hello entry for detailed test */
+    entry = NULL;
+    for (size_t i = 0; i < ctx->count; i++) {
+        if (strcmp(ctx->entries[i]->slug, "hello") == 0) {
+            entry = ctx->entries[i];
+            break;
+        }
+    }
+    if (!entry) {
+        printf("FAIL: hello entry not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
     printf("\nParsing entry: %s (%s)\n", entry->slug, entry->lang);
     
     ret = cxo_parse_markdown(entry, arena, NULL);
@@ -59,6 +70,21 @@ int main(void)
     printf("  description: %s\n",
            entry->description ? entry->description : "(null)");
     printf("  tags: %zu\n", entry->tag_count);
+    
+    /* Verify description and tags */
+    if (!entry->description || strlen(entry->description) == 0) {
+        printf("FAIL: description is missing\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("PASS: description present\n");
+    
+    if (entry->tag_count != 2) {
+        printf("FAIL: expected 2 tags, got %zu\n", entry->tag_count);
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("PASS: tag count is 2 (%s, %s)\n", entry->tags[0], entry->tags[1]);
     
     /* Verify HTML content was generated */
     if (!entry->html_content) {

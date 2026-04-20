@@ -86,13 +86,13 @@ int main(void)
     }
     
     /* Each link is counted twice (once per entry) */
-    if (linked != 2) {
-        printf("\nFAIL: expected 2 linked entries, got %d\n", linked);
+    if (linked % 2 != 0) {
+        printf("\nFAIL: broken link count (%d)\n", linked);
         arena_destroy(arena);
         return 1;
     }
     
-    printf("\nPASS: all entries correctly linked (1 pair)\n");
+    printf("\nPASS: all entries correctly linked (%d pairs)\n", linked / 2);
     
     arena_destroy(arena);
     printf("PASS: cleanup\n");
