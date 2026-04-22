@@ -17,6 +17,7 @@
 #define MAX_OUTPUT_PATH 4096
 #define MAX_TEMPLATE_SIZE (256 * 1024)
 #define EXCERPT_MAX_LEN 150
+#define MAX_ARCHIVE_PERIODS 128
 
 /* Hot reload script - injected when CXO_HOTRELOAD=1 */
 static const char* hotreload_script =
@@ -34,6 +35,25 @@ static const char* hotreload_script =
     "  };\n"
     "})();\n"
     "</script>\n";
+
+/* Fallback archive template */
+static const char* fallback_archive_template =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"{{lang}}\">\n"
+    "<head>\n"
+    "<meta charset=\"UTF-8\">\n"
+    "<title>{{site_title}} - {{archive_title}}</title>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "</head>\n"
+    "<body>\n"
+    "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
+    "<h1>{{archive_title}}</h1>\n"
+    "<ul class=\"post-list\">\n"
+    "{{entry_list}}"
+    "</ul>\n"
+    "{{hotreload}}"
+    "</body>\n"
+    "</html>\n";
 
 /* Fallback tag template */
 static const char* fallback_tag_template =
@@ -395,6 +415,24 @@ static char* load_index_template(arena_t* arena, const char* theme_path)
     tmpl = read_file_to_arena(arena, path);
     if (!tmpl) {
         return arena_strdup(arena, fallback_index_template);
+    }
+    return tmpl;
+}
+
+/* Load archive template */
+static char* load_archive_template(arena_t* arena, const char* theme_path)
+{
+    char path[MAX_OUTPUT_PATH];
+    char* tmpl;
+    
+    snprintf(path, sizeof(path), "%s/archive.html", theme_path);
+    tmpl = read_file_to_arena(arena, path);
+    if (!tmpl) {
+        snprintf(path, sizeof(path), "%s/tag.html", theme_path);
+        tmpl = read_file_to_arena(arena, path);
+        if (!tmpl) {
+            return arena_strdup(arena, fallback_archive_template);
+        }
     }
     return tmpl;
 }
@@ -1103,6 +1141,87 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
         }
     }
     
+    /* Add archive pages to sitemap */
+    {
+        char years[MAX_ARCHIVE_PERIODS][5];
+        char months[MAX_ARCHIVE_PERIODS][8];
+        size_t year_count = 0;
+        size_t month_count = 0;
+        size_t j;
+        int found;
+        
+        for (i = 0; i < ctx->count; i++) {
+            cxo_entry_t* entry = ctx->entries[i];
+            char year[5];
+            char month[8];
+            
+            if (entry->draft || strlen(entry->date) < 4) {
+                continue;
+            }
+            
+            memcpy(year, entry->date, 4);
+            year[4] = '\0';
+            snprintf(month, sizeof(month), "%s-%c%c", year,
+                     entry->date[5], entry->date[6]);
+            
+            found = 0;
+            for (j = 0; j < year_count; j++) {
+                if (strcmp(years[j], year) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found && year_count < MAX_ARCHIVE_PERIODS) {
+                strcpy(years[year_count++], year);
+            }
+            
+            found = 0;
+            for (j = 0; j < month_count; j++) {
+                if (strcmp(months[j], month) == 0) {
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found && month_count < MAX_ARCHIVE_PERIODS) {
+                strcpy(months[month_count++], month);
+            }
+        }
+        
+        for (j = 0; j < year_count; j++) {
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/%s/</loc>\n"
+                    "<priority>0.5</priority>\n"
+                    "</url>\n",
+                    base_url, years[j]);
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/en/%s/</loc>\n"
+                    "<priority>0.5</priority>\n"
+                    "</url>\n",
+                    base_url, years[j]);
+        }
+        
+        for (j = 0; j < month_count; j++) {
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/%c%c%c%c/%c%c/</loc>\n"
+                    "<priority>0.5</priority>\n"
+                    "</url>\n",
+                    base_url,
+                    months[j][0], months[j][1], months[j][2], months[j][3],
+                    months[j][5], months[j][6]);
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/en/%c%c%c%c/%c%c/</loc>\n"
+                    "<priority>0.5</priority>\n"
+                    "</url>\n",
+                    base_url,
+                    months[j][0], months[j][1], months[j][2], months[j][3],
+                    months[j][5], months[j][6]);
+        }
+    }
+    
     fprintf(fp, "</urlset>\n");
     fclose(fp);
     printf("Generated: %s\n", path);
@@ -1265,6 +1384,224 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     fprintf(fp, "%s", html);
     fclose(fp);
     printf("Generated: %s\n", path);
+    return CXO_OK;
+}
+
+/* Build entry list for archives matching year/month and language */
+static char* build_archive_entry_list(cxo_context_t* ctx, arena_t* arena,
+                                      const char* lang, const char* year,
+                                      const char* month)
+{
+    size_t i;
+    size_t total_len = 256;
+    char* list_html;
+    size_t offset = 0;
+    int found = 0;
+    int include_drafts = show_drafts();
+    size_t year_len = strlen(year);
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
+            continue;
+        }
+        if (strncmp(entry->date, year, year_len) == 0) {
+            if (!month || strncmp(entry->date + year_len + 1, month, 2) == 0) {
+                found = 1;
+                total_len += 100 + strlen(entry->slug) + strlen(entry->title) +
+                             strlen(entry->date);
+            }
+        }
+    }
+    
+    if (!found) {
+        return NULL;
+    }
+    
+    list_html = arena_alloc(arena, total_len);
+    if (!list_html) {
+        return NULL;
+    }
+    
+    list_html[0] = '\0';
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
+            continue;
+        }
+        if (strncmp(entry->date, year, year_len) == 0) {
+            if (!month || strncmp(entry->date + year_len + 1, month, 2) == 0) {
+                const char* subdir = get_output_subdir(entry->lang);
+                int written = snprintf(list_html + offset, total_len - offset,
+                                       "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
+                                       subdir, entry->slug, entry->title,
+                                       entry->date);
+                if (written > 0) {
+                    offset += written;
+                }
+            }
+        }
+    }
+    
+    return list_html;
+}
+
+/* Render a single archive page */
+static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
+                               const char* output_dir, const char* lang,
+                               const char* year, const char* month,
+                               const char* tmpl)
+{
+    char path[MAX_OUTPUT_PATH];
+    char* list_html;
+    char* html;
+    FILE* fp;
+    const char* prefix;
+    char title[64];
+    
+    list_html = build_archive_entry_list(ctx, arena, lang, year, month);
+    if (!list_html) {
+        return CXO_OK;
+    }
+    
+    prefix = (strcmp(lang, "en") == 0) ? "en/" : "";
+    
+    if (month) {
+        char dir_path[MAX_OUTPUT_PATH];
+        snprintf(dir_path, sizeof(dir_path), "%s/%s%s/%s",
+                 output_dir, prefix, year, month);
+        snprintf(path, sizeof(path), "%s/index.html", dir_path);
+        snprintf(title, sizeof(title), "%s-%s", year, month);
+        if (ensure_dir(dir_path) != CXO_OK) {
+            return CXO_ERR_IO;
+        }
+    } else {
+        char dir_path[MAX_OUTPUT_PATH];
+        snprintf(dir_path, sizeof(dir_path), "%s/%s%s",
+                 output_dir, prefix, year);
+        snprintf(path, sizeof(path), "%s/index.html", dir_path);
+        snprintf(title, sizeof(title), "%s", year);
+        if (ensure_dir(dir_path) != CXO_OK) {
+            return CXO_ERR_IO;
+        }
+    }
+    
+    html = replace_var(arena, tmpl, "lang", lang);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "site_title", ctx->site_title);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "site_description", ctx->site_description);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "archive_title", title);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "tag_name", title);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "entry_list", list_html);
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "hotreload",
+                       hotreload_enabled() ? hotreload_script : "");
+    
+    fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "Error: Cannot write %s\n", path);
+        return CXO_ERR_IO;
+    }
+    
+    fprintf(fp, "%s", html);
+    fclose(fp);
+    printf("Generated: %s\n", path);
+    return CXO_OK;
+}
+
+/* Render all archive pages for a language */
+static int render_archive_pages(cxo_context_t* ctx, arena_t* arena,
+                                const char* output_dir, const char* lang,
+                                const char* tmpl)
+{
+    size_t i;
+    char years[MAX_ARCHIVE_PERIODS][5];
+    char months[MAX_ARCHIVE_PERIODS][8];
+    size_t year_count = 0;
+    size_t month_count = 0;
+    size_t y, m;
+    int include_drafts = show_drafts();
+    
+    /* Collect unique years and year-months */
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        char year[5];
+        char month[8];
+        int found;
+        size_t j;
+        
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
+            continue;
+        }
+        
+        if (strlen(entry->date) < 4) {
+            continue;
+        }
+        
+        memcpy(year, entry->date, 4);
+        year[4] = '\0';
+        snprintf(month, sizeof(month), "%s-%c%c", year,
+                 entry->date[5], entry->date[6]);
+        
+        /* Add unique year */
+        found = 0;
+        for (j = 0; j < year_count; j++) {
+            if (strcmp(years[j], year) == 0) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found && year_count < MAX_ARCHIVE_PERIODS) {
+            strcpy(years[year_count++], year);
+        }
+        
+        /* Add unique year-month */
+        found = 0;
+        for (j = 0; j < month_count; j++) {
+            if (strcmp(months[j], month) == 0) {
+                found = 1;
+                break;
+            }
+        }
+        if (!found && month_count < MAX_ARCHIVE_PERIODS) {
+            strcpy(months[month_count++], month);
+        }
+    }
+    
+    /* Render year archives */
+    for (y = 0; y < year_count; y++) {
+        render_archive_page(ctx, arena, output_dir, lang, years[y], NULL, tmpl);
+    }
+    
+    /* Render month archives */
+    for (m = 0; m < month_count; m++) {
+        char yr[5];
+        char mo[3];
+        memcpy(yr, months[m], 4);
+        yr[4] = '\0';
+        mo[0] = months[m][5];
+        mo[1] = months[m][6];
+        mo[2] = '\0';
+        render_archive_page(ctx, arena, output_dir, lang, yr, mo, tmpl);
+    }
+    
     return CXO_OK;
 }
 
@@ -1450,6 +1787,13 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
             render_tag_page(ctx, arena, output_dir, "en", unique_tags[t],
                             tag_tmpl);
         }
+    }
+    
+    /* Generate archive pages */
+    {
+        char* archive_tmpl = load_archive_template(arena, ctx->theme_path);
+        render_archive_pages(ctx, arena, output_dir, "zh", archive_tmpl);
+        render_archive_pages(ctx, arena, output_dir, "en", archive_tmpl);
     }
     
     /* Generate RSS feeds */

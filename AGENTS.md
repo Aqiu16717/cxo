@@ -46,13 +46,15 @@ cxo version            # or: cxo -v
 ## Features
 
 - **Bilingual**: Hardcoded `zh`/`en` routing with `peer` entry linking
-- **Templates**: `themes/default/post.html`, `themes/default/index.html`, and `themes/default/tag.html`
+- **Templates**: `themes/default/post.html`, `themes/default/index.html`, `themes/default/tag.html`, and `themes/default/archive.html`
   - Template variables: `{{title}}`, `{{date}}`, `{{content}}`, `{{tags}}`, `{{description}}`, `{{lang}}`, `{{nav_lang_switch}}`, `{{site_title}}`, `{{site_description}}`, `{{hotreload}}`, `{{prev}}`, `{{next}}`, `{{toc}}`
   - Index template additionally supports: `{{pagination}}`
+  - Archive template supports: `{{archive_title}}`, `{{entry_list}}`
   - Tag template additionally supports: `{{tag_name}}`, `{{entry_list}}`
 - **Hot reload**: `cxo serve -w` watches `content/`, `themes/`, `config.toml`
 - **Draft mode**: Skip drafts unless `CXO_DRAFT=1` is set
 - **RSS**: Generates `public/rss.xml` and `public/en/rss.xml`
+- **Archives**: Auto-generates year (`/2026/`) and month (`/2026/04/`) archive pages
 - **Sitemap**: Generates `public/sitemap.xml`
 - **Syntax highlighting**: highlight.js via CDN in default theme
 
