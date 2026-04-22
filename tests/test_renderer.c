@@ -114,6 +114,66 @@ int main(void)
     }
     printf("  Found: public/tags/next.html\n");
     
+    /* Verify archive pages exist */
+    if (stat("public/2026/index.html", &st) != 0) {
+        printf("FAIL: public/2026/index.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/2026/index.html\n");
+    
+    if (stat("public/2026/03/index.html", &st) != 0) {
+        printf("FAIL: public/2026/03/index.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/2026/03/index.html\n");
+    
+    if (stat("public/en/2026/index.html", &st) != 0) {
+        printf("FAIL: public/en/2026/index.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/en/2026/index.html\n");
+    
+    if (stat("public/en/2026/03/index.html", &st) != 0) {
+        printf("FAIL: public/en/2026/03/index.html not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/en/2026/03/index.html\n");
+    
+    /* Verify archive page content */
+    {
+        FILE* fp;
+        char buf[4096];
+        size_t n;
+        
+        fp = fopen("public/2026/index.html", "r");
+        if (!fp) {
+            printf("FAIL: cannot read public/2026/index.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        n = fread(buf, 1, sizeof(buf) - 1, fp);
+        buf[n] = '\0';
+        fclose(fp);
+        
+        if (strstr(buf, "2026") == NULL) {
+            printf("FAIL: archive title missing in 2026/index.html\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found archive title in 2026/index.html\n");
+        
+        if (strstr(buf, "Second Post") == NULL) {
+            printf("FAIL: archive missing Second Post\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found post link in archive page\n");
+    }
+    
     /* Verify prev/next navigation */
     {
         FILE* fp;

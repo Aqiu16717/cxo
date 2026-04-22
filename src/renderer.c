@@ -349,31 +349,35 @@ static void sort_entries(cxo_context_t* ctx)
     }
 }
 
-/* Assign prev/next post pointers by date within same language */
+/* Assign prev/next post pointers by date within same language.
+ * Entries must be sorted by date descending before calling.
+ * Runs in O(n) by tracking last seen entry per language.
+ */
 static void assign_prev_next(cxo_context_t* ctx)
 {
     size_t i;
-    size_t j;
+    cxo_entry_t* last_zh = NULL;
+    cxo_entry_t* last_en = NULL;
     
+    /* First pass (newest to oldest): assign next (newer) pointers */
     for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
+        cxo_entry_t** last = (strcmp(entry->lang, "en") == 0) ? &last_en : &last_zh;
         
+        entry->next = *last;
         entry->prev = NULL;
-        entry->next = NULL;
+        *last = entry;
+    }
+    
+    /* Second pass (oldest to newest): assign prev (older) pointers */
+    last_zh = NULL;
+    last_en = NULL;
+    for (i = ctx->count; i > 0; i--) {
+        cxo_entry_t* entry = ctx->entries[i - 1];
+        cxo_entry_t** last = (strcmp(entry->lang, "en") == 0) ? &last_en : &last_zh;
         
-        for (j = i; j > 0; j--) {
-            if (strcmp(ctx->entries[j - 1]->lang, entry->lang) == 0) {
-                entry->next = ctx->entries[j - 1];
-                break;
-            }
-        }
-        
-        for (j = i + 1; j < ctx->count; j++) {
-            if (strcmp(ctx->entries[j]->lang, entry->lang) == 0) {
-                entry->prev = ctx->entries[j];
-                break;
-            }
-        }
+        entry->prev = *last;
+        *last = entry;
     }
 }
 
