@@ -19,6 +19,7 @@ static const char* config_template =
     "title = \"My Blog\"\n"
     "description = \"A minimalist blog powered by CXO\"\n"
     "base_url = \"https://example.com\"\n"
+    "posts_per_page = 10\n"
     "\n"
     "[theme]\n"
     "path = \"themes/default\"\n";

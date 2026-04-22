@@ -248,6 +248,9 @@ static char* skip_frontmatter_opening(char* content)
     return content + 1;
 }
 
+/* Forward declaration */
+void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena);
+
 static int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
                           char* content, char** content_start)
 {
@@ -332,5 +335,253 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
      */
     free(html);
     
+    /* Generate table of contents and add heading IDs */
+    cxo_generate_toc(entry, arena);
+    
     return CXO_OK;
+}
+
+#define MAX_HEADINGS 64
+
+typedef struct {
+    int level;
+    char* text;
+    char* id;
+} heading_t;
+
+/* Convert text to URL-friendly slug */
+static void slugify(char* dst, const char* src, size_t dst_size)
+{
+    size_t i, j;
+    int last_was_dash = 1;
+    
+    j = 0;
+    for (i = 0; src[i] && j < dst_size - 1; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (isalnum(c)) {
+            dst[j++] = (char)tolower(c);
+            last_was_dash = 0;
+        } else if (!last_was_dash && j > 0) {
+            dst[j++] = '-';
+            last_was_dash = 1;
+        }
+    }
+    if (j > 0 && dst[j - 1] == '-') {
+        j--;
+    }
+    dst[j] = '\0';
+}
+
+/* Generate TOC from HTML headings and add id attributes */
+void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
+{
+    const char* html = entry->html_content;
+    size_t html_len;
+    heading_t headings[MAX_HEADINGS];
+    size_t hcount = 0;
+    size_t extra_len = 0;
+    const char* p;
+    const char* last;
+    char* modified;
+    char* toc;
+    size_t toc_len;
+    size_t i;
+    size_t mod_offset = 0;
+    size_t toc_offset = 0;
+    int prev_level = 0;
+    
+    if (!html) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
+    
+    html_len = strlen(html);
+    
+    /* First pass: find all headings */
+    p = html;
+    while (*p && hcount < MAX_HEADINGS) {
+        if (*p == '<' && p[1] == 'h' && p[2] >= '1' && p[2] <= '6' &&
+            (p[3] == '>' || isspace((unsigned char)p[3]))) {
+            int level = p[2] - '0';
+            const char* tag_end = strchr(p, '>');
+            const char* close_tag_start;
+            char close_tag[8];
+            size_t text_len;
+            
+            if (!tag_end) {
+                break;
+            }
+            
+            snprintf(close_tag, sizeof(close_tag), "</h%d>", level);
+            close_tag_start = strstr(tag_end + 1, close_tag);
+            if (!close_tag_start) {
+                break;
+            }
+            
+            text_len = close_tag_start - (tag_end + 1);
+            
+            headings[hcount].level = level;
+            headings[hcount].text = arena_alloc(arena, text_len + 1);
+            if (!headings[hcount].text) {
+                entry->toc = arena_strdup(arena, "");
+                return;
+            }
+            memcpy(headings[hcount].text, tag_end + 1, text_len);
+            headings[hcount].text[text_len] = '\0';
+            
+            headings[hcount].id = arena_alloc(arena, text_len * 2 + 32);
+            if (!headings[hcount].id) {
+                entry->toc = arena_strdup(arena, "");
+                return;
+            }
+            slugify(headings[hcount].id, headings[hcount].text,
+                    text_len * 2 + 32);
+            
+            extra_len += strlen(headings[hcount].id) + 16;
+            hcount++;
+            p = close_tag_start + strlen(close_tag);
+        } else {
+            p++;
+        }
+    }
+    
+    if (hcount == 0) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
+    
+    /* Fix duplicate IDs */
+    for (i = 0; i < hcount; i++) {
+        size_t k;
+        int dup_count = 0;
+        for (k = 0; k < i; k++) {
+            if (strcmp(headings[k].id, headings[i].id) == 0) {
+                dup_count++;
+            }
+        }
+        if (dup_count > 0) {
+            char suffix[16];
+            size_t id_buf_size = strlen(headings[i].text) * 2 + 32;
+            snprintf(suffix, sizeof(suffix), "-%d", dup_count + 1);
+            strncat(headings[i].id, suffix,
+                    id_buf_size - strlen(headings[i].id) - 1);
+        }
+    }
+    
+    /* Build modified HTML with id attributes */
+    modified = arena_alloc(arena, html_len + extra_len + 1);
+    if (!modified) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
+    
+    last = html;
+    hcount = 0;
+    
+    for (p = html; *p; ) {
+        if (*p == '<' && p[1] == 'h' && p[2] >= '1' && p[2] <= '6' &&
+            (p[3] == '>' || isspace((unsigned char)p[3]))) {
+            int level = p[2] - '0';
+            const char* tag_end = strchr(p, '>');
+            const char* close_tag_start;
+            char close_tag[8];
+            size_t segment;
+            
+            if (!tag_end) {
+                break;
+            }
+            
+            snprintf(close_tag, sizeof(close_tag), "</h%d>", level);
+            close_tag_start = strstr(tag_end + 1, close_tag);
+            if (!close_tag_start) {
+                break;
+            }
+            
+            /* Copy everything before this heading tag */
+            segment = p - last;
+            memcpy(modified + mod_offset, last, segment);
+            mod_offset += segment;
+            
+            /* Write opening tag with id */
+            if (p[3] == '>') {
+                mod_offset += snprintf(modified + mod_offset,
+                                       html_len + extra_len - mod_offset,
+                                       "<h%d id=\"%s\">",
+                                       level, headings[hcount].id);
+            } else {
+                size_t tag_len = tag_end - p + 1;
+                memcpy(modified + mod_offset, p, tag_len - 1);
+                mod_offset += tag_len - 1;
+                mod_offset += snprintf(modified + mod_offset,
+                                       html_len + extra_len - mod_offset,
+                                       " id=\"%s\">",
+                                       headings[hcount].id);
+            }
+            
+            last = tag_end + 1;
+            p = close_tag_start + strlen(close_tag);
+            hcount++;
+        } else {
+            p++;
+        }
+    }
+    
+    /* Copy remainder */
+    strcpy(modified + mod_offset, last);
+    entry->html_content = modified;
+    
+    /* Build TOC HTML */
+    toc_len = hcount * 256 + 128;
+    toc = arena_alloc(arena, toc_len);
+    if (!toc) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
+    
+    toc_offset = snprintf(toc, toc_len, "<nav class=\"toc\">\n<ul>\n");
+    
+    for (i = 0; i < hcount; i++) {
+        int level = headings[i].level;
+        
+        if (i == 0) {
+            toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                                   "<li>");
+        } else if (level > prev_level) {
+            int diff = level - prev_level;
+            while (diff-- > 0) {
+                toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                                       "<ul>\n<li>");
+            }
+        } else if (level < prev_level) {
+            int diff = prev_level - level;
+            toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                                   "</li>\n");
+            while (diff-- > 0) {
+                toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                                       "</ul>\n</li>\n");
+            }
+            toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                                   "<li>");
+        } else {
+            toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                                   "</li>\n<li>");
+        }
+        
+        toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                               "<a href=\"#%s\">%s</a>",
+                               headings[i].id, headings[i].text);
+        prev_level = level;
+    }
+    
+    toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                           "</li>\n");
+    while (prev_level > 1) {
+        toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                               "</ul>\n</li>\n");
+        prev_level--;
+    }
+    toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
+                           "</ul>\n</nav>\n");
+    
+    entry->toc = toc;
 }

@@ -27,6 +27,16 @@ static char* toml_string_or(const toml_table_t* tab, const char* key,
     }
 }
 
+/* Helper to safely get int from TOML */
+static long toml_int_or(const toml_table_t* tab, const char* key, long def)
+{
+    toml_datum_t d = toml_int_in(tab, key);
+    if (!d.ok) {
+        return def;
+    }
+    return d.u.i;
+}
+
 /* Load config from TOML file */
 int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
                     const char* config_path)
@@ -41,6 +51,7 @@ int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
     ctx->site_description = arena_strdup(arena, "A minimalist blog");
     ctx->base_url = arena_strdup(arena, "http://localhost");
     ctx->theme_path = arena_strdup(arena, "themes/default");
+    ctx->posts_per_page = 0;
     
     /* Open config file */
     fp = fopen(config_path, "r");
@@ -65,6 +76,7 @@ int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
         ctx->site_description = toml_string_or(site, "description", arena,
                                                 ctx->site_description);
         ctx->base_url = toml_string_or(site, "base_url", arena, ctx->base_url);
+        ctx->posts_per_page = (size_t)toml_int_or(site, "posts_per_page", 0);
     }
     
     /* Read [theme] section */

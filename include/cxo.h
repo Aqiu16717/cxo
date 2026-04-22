@@ -31,6 +31,7 @@ typedef struct cxo_entry {
     size_t tag_count;       /* Number of tags */
     struct cxo_entry* prev; /* Previous post by date (same lang) */
     struct cxo_entry* next; /* Next post by date (same lang) */
+    char* toc;              /* Table of contents HTML */
 } cxo_entry_t;
 
 /* Site-wide context */
@@ -42,6 +43,7 @@ typedef struct {
     char* theme_path;
     char* site_title;
     char* site_description;
+    size_t posts_per_page;  /* 0 = no pagination */
 } cxo_context_t;
 
 /* Context and entry management */

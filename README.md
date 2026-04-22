@@ -97,6 +97,7 @@ Available template variables:
 title = "My Blog"
 description = "A minimalist blog"
 base_url = "https://example.com"
+posts_per_page = 10
 
 [theme]
 path = "themes/default"

@@ -47,7 +47,8 @@ cxo version            # or: cxo -v
 
 - **Bilingual**: Hardcoded `zh`/`en` routing with `peer` entry linking
 - **Templates**: `themes/default/post.html`, `themes/default/index.html`, and `themes/default/tag.html`
-  - Template variables: `{{title}}`, `{{date}}`, `{{content}}`, `{{tags}}`, `{{description}}`, `{{lang}}`, `{{nav_lang_switch}}`, `{{site_title}}`, `{{site_description}}`, `{{hotreload}}`, `{{prev}}`, `{{next}}`
+  - Template variables: `{{title}}`, `{{date}}`, `{{content}}`, `{{tags}}`, `{{description}}`, `{{lang}}`, `{{nav_lang_switch}}`, `{{site_title}}`, `{{site_description}}`, `{{hotreload}}`, `{{prev}}`, `{{next}}`, `{{toc}}`
+  - Index template additionally supports: `{{pagination}}`
   - Tag template additionally supports: `{{tag_name}}`, `{{entry_list}}`
 - **Hot reload**: `cxo serve -w` watches `content/`, `themes/`, `config.toml`
 - **Draft mode**: Skip drafts unless `CXO_DRAFT=1` is set
@@ -73,6 +74,10 @@ Content here...
 
 - `description` - Shown on index page and post page; auto-generated from content if omitted
 - `tags` - Comma-separated list; generates tag pages and links on posts
+
+## Table of Contents
+
+Posts automatically generate a table of contents from HTML headings (h1-h6). Use `{{toc}}` in `post.html` to display it. Heading anchors are auto-generated from heading text.
 
 ## Error Codes
 

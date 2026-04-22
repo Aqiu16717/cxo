@@ -69,6 +69,7 @@ static const char* fallback_index_template =
     "<ul class=\"post-list\">\n"
     "{{entry_list}}"
     "</ul>\n"
+    "{{pagination}}"
     "{{hotreload}}"
     "</body>\n"
     "</html>\n";
@@ -307,43 +308,52 @@ static char* build_nav_link(arena_t* arena, cxo_entry_t* entry,
     return arena_strdup(arena, buf);
 }
 
+/* Compare entries by date descending, then by slug */
+static int compare_entries_by_date(const void* a, const void* b)
+{
+    const cxo_entry_t* ea = *(const cxo_entry_t**)a;
+    const cxo_entry_t* eb = *(const cxo_entry_t**)b;
+    int cmp = strcmp(eb->date, ea->date);
+    if (cmp != 0) {
+        return cmp;
+    }
+    return strcmp(ea->slug, eb->slug);
+}
+
+/* Sort entries by date descending */
+static void sort_entries(cxo_context_t* ctx)
+{
+    if (ctx->count > 1) {
+        qsort(ctx->entries, ctx->count, sizeof(cxo_entry_t*),
+              compare_entries_by_date);
+    }
+}
+
 /* Assign prev/next post pointers by date within same language */
 static void assign_prev_next(cxo_context_t* ctx)
 {
-    size_t i, j;
+    size_t i;
+    size_t j;
     
     for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
-        cxo_entry_t* prev_entry = NULL;
-        cxo_entry_t* next_entry = NULL;
         
-        if (!entry->date) {
-            continue;
-        }
+        entry->prev = NULL;
+        entry->next = NULL;
         
-        for (j = 0; j < ctx->count; j++) {
-            cxo_entry_t* other = ctx->entries[j];
-            
-            if (i == j || !other->date) {
-                continue;
-            }
-            if (strcmp(entry->lang, other->lang) != 0) {
-                continue;
-            }
-            
-            if (strcmp(other->date, entry->date) < 0) {
-                if (!prev_entry || strcmp(other->date, prev_entry->date) > 0) {
-                    prev_entry = other;
-                }
-            } else if (strcmp(other->date, entry->date) > 0) {
-                if (!next_entry || strcmp(other->date, next_entry->date) < 0) {
-                    next_entry = other;
-                }
+        for (j = i; j > 0; j--) {
+            if (strcmp(ctx->entries[j - 1]->lang, entry->lang) == 0) {
+                entry->next = ctx->entries[j - 1];
+                break;
             }
         }
         
-        entry->prev = prev_entry;
-        entry->next = next_entry;
+        for (j = i + 1; j < ctx->count; j++) {
+            if (strcmp(ctx->entries[j]->lang, entry->lang) == 0) {
+                entry->prev = ctx->entries[j];
+                break;
+            }
+        }
     }
 }
 
@@ -479,6 +489,10 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
         return NULL;
     }
     html = replace_var(arena, html, "site_description", ctx->site_description);
+    if (!html) {
+        return NULL;
+    }
+    html = replace_var(arena, html, "toc", entry->toc ? entry->toc : "");
     if (!html) {
         return NULL;
     }
@@ -736,6 +750,92 @@ static char* build_entry_list(cxo_context_t* ctx, arena_t* arena, const char* la
     return list_html;
 }
 
+/* Build paginated entry list for a specific page */
+static char* build_paginated_entry_list(cxo_context_t* ctx, arena_t* arena,
+                                        const char* lang, size_t page,
+                                        size_t per_page)
+{
+    size_t i;
+    size_t match_count = 0;
+    size_t start = (page - 1) * per_page;
+    size_t end = start + per_page;
+    size_t total_len = 256;
+    char* list_html;
+    size_t offset = 0;
+    int include_drafts = show_drafts();
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
+            continue;
+        }
+        total_len += 300 + strlen(entry->slug) + strlen(entry->title) +
+                     strlen(entry->date);
+    }
+    
+    list_html = arena_alloc(arena, total_len);
+    if (!list_html) {
+        return NULL;
+    }
+    
+    list_html[0] = '\0';
+    
+    for (i = 0; i < ctx->count; i++) {
+        cxo_entry_t* entry = ctx->entries[i];
+        if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
+            continue;
+        }
+        if (match_count >= start && match_count < end) {
+            append_entry_link(list_html, total_len, &offset, entry, arena);
+        }
+        match_count++;
+    }
+    
+    if (offset == 0) {
+        return arena_strdup(arena, "<li>No posts on this page</li>\n");
+    }
+    
+    return list_html;
+}
+
+/* Build pagination navigation HTML */
+static char* build_pagination(arena_t* arena, const char* lang,
+                              size_t page, size_t page_count)
+{
+    char buf[512];
+    size_t offset = 0;
+    const char* prefix;
+    
+    if (page_count <= 1) {
+        return arena_strdup(arena, "");
+    }
+    
+    prefix = (strcmp(lang, "en") == 0) ? "/en" : "";
+    offset = snprintf(buf, sizeof(buf), "<nav class=\"pagination\">\n");
+    
+    if (page > 1) {
+        if (page == 2) {
+            offset += snprintf(buf + offset, sizeof(buf) - offset,
+                               "<a href=\"%s\" class=\"newer\">← Newer Posts</a>\n",
+                               prefix[0] ? "/en/" : "/");
+        } else {
+            offset += snprintf(buf + offset, sizeof(buf) - offset,
+                               "<a href=\"%s/page/%zu/\" class=\"newer\">← Newer Posts</a>\n",
+                               prefix, page - 1);
+        }
+    }
+    
+    if (page < page_count) {
+        offset += snprintf(buf + offset, sizeof(buf) - offset,
+                           "<a href=\"%s/page/%zu/\" class=\"older\">Older Posts →</a>\n",
+                           prefix, page + 1);
+    }
+    
+    offset += snprintf(buf + offset, sizeof(buf) - offset, "</nav>\n");
+    
+    return arena_strdup(arena, buf);
+}
+
 /* Convert date from YYYY-MM-DD to RFC 822 format for RSS
  * Returns pointer to static buffer
  */
@@ -974,6 +1074,35 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
         write_sitemap_entry(fp, entry, base_url);
     }
     
+    /* Add paginated index pages to sitemap */
+    {
+        size_t zh_count = count_matching_entries(ctx, "zh", 0);
+        size_t en_count = count_matching_entries(ctx, "en", 0);
+        size_t zh_pages = ctx->posts_per_page > 0 ?
+            (zh_count + ctx->posts_per_page - 1) / ctx->posts_per_page : 1;
+        size_t en_pages = ctx->posts_per_page > 0 ?
+            (en_count + ctx->posts_per_page - 1) / ctx->posts_per_page : 1;
+        size_t p;
+        
+        for (p = 2; p <= zh_pages; p++) {
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/page/%zu/</loc>\n"
+                    "<priority>0.6</priority>\n"
+                    "</url>\n",
+                    base_url, p);
+        }
+        
+        for (p = 2; p <= en_pages; p++) {
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/en/page/%zu/</loc>\n"
+                    "<priority>0.6</priority>\n"
+                    "</url>\n",
+                    base_url, p);
+        }
+    }
+    
     fprintf(fp, "</urlset>\n");
     fclose(fp);
     printf("Generated: %s\n", path);
@@ -1139,25 +1268,61 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     return CXO_OK;
 }
 
-/* Generate index page */
-static int render_index(cxo_context_t* ctx, arena_t* arena,
-                        const char* output_dir, const char* lang,
-                        const char* tmpl)
+/* Render a single index page */
+static int render_index_page(cxo_context_t* ctx, arena_t* arena,
+                              const char* output_dir, const char* lang,
+                              const char* tmpl, size_t page, size_t page_count,
+                              size_t per_page)
 {
     char path[MAX_OUTPUT_PATH];
+    char dir_path[MAX_OUTPUT_PATH];
     FILE* fp;
     char* entry_list;
     char* html;
+    char* pagination;
     
-    if (strcmp(lang, "en") == 0) {
-        snprintf(path, sizeof(path), "%s/en/index.html", output_dir);
+    if (page == 1) {
+        if (strcmp(lang, "en") == 0) {
+            snprintf(path, sizeof(path), "%s/en/index.html", output_dir);
+        } else {
+            snprintf(path, sizeof(path), "%s/index.html", output_dir);
+        }
     } else {
-        snprintf(path, sizeof(path), "%s/index.html", output_dir);
+        if (strcmp(lang, "en") == 0) {
+            snprintf(path, sizeof(path), "%s/en/page/%zu/index.html",
+                     output_dir, page);
+        } else {
+            snprintf(path, sizeof(path), "%s/page/%zu/index.html",
+                     output_dir, page);
+        }
     }
     
-    entry_list = build_entry_list(ctx, arena, lang);
+    /* Ensure directory exists for paginated pages */
+    strncpy(dir_path, path, sizeof(dir_path) - 1);
+    dir_path[sizeof(dir_path) - 1] = '\0';
+    {
+        char* last_slash = strrchr(dir_path, '/');
+        if (last_slash) {
+            *last_slash = '\0';
+            if (ensure_dir(dir_path) != CXO_OK) {
+                fprintf(stderr, "Error: Cannot create directory %s\n", dir_path);
+                return CXO_ERR_IO;
+            }
+        }
+    }
+    
+    if (per_page > 0 && page_count > 1) {
+        entry_list = build_paginated_entry_list(ctx, arena, lang, page, per_page);
+    } else {
+        entry_list = build_entry_list(ctx, arena, lang);
+    }
     if (!entry_list) {
         entry_list = "";
+    }
+    
+    pagination = build_pagination(arena, lang, page, page_count);
+    if (!pagination) {
+        pagination = "";
     }
     
     html = replace_var(arena, tmpl, "lang", lang);
@@ -1176,6 +1341,10 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
     if (!html) {
         html = "";
     }
+    html = replace_var(arena, html, "pagination", pagination);
+    if (!html) {
+        html = "";
+    }
     html = replace_var(arena, html, "hotreload",
                        hotreload_enabled() ? hotreload_script : "");
     if (!html) {
@@ -1191,6 +1360,37 @@ static int render_index(cxo_context_t* ctx, arena_t* arena,
     fprintf(fp, "%s", html);
     fclose(fp);
     printf("Generated: %s\n", path);
+    return CXO_OK;
+}
+
+/* Generate index page(s) with pagination */
+static int render_index(cxo_context_t* ctx, arena_t* arena,
+                        const char* output_dir, const char* lang,
+                        const char* tmpl)
+{
+    size_t total_entries;
+    size_t per_page = ctx->posts_per_page;
+    size_t page_count;
+    size_t page;
+    int rc;
+    
+    total_entries = count_matching_entries(ctx, lang, show_drafts());
+    
+    if (per_page == 0 || total_entries <= per_page) {
+        return render_index_page(ctx, arena, output_dir, lang, tmpl,
+                                  1, 1, 0);
+    }
+    
+    page_count = (total_entries + per_page - 1) / per_page;
+    
+    for (page = 1; page <= page_count; page++) {
+        rc = render_index_page(ctx, arena, output_dir, lang, tmpl,
+                                page, page_count, per_page);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
+    }
+    
     return CXO_OK;
 }
 
@@ -1216,7 +1416,8 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
         fprintf(stderr, "Warning: Failed to copy theme assets\n");
     }
     
-    /* Assign prev/next navigation links */
+    /* Sort entries by date descending and assign prev/next navigation */
+    sort_entries(ctx);
     assign_prev_next(ctx);
     
     /* Render individual entries */
