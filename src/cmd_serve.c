@@ -127,11 +127,10 @@ static int has_traversal(const char* path)
     
     p = path;
     while (*p) {
-        if (p[0] == '.') {
-            if (p[1] == '.') {
-                if (p[2] == '\0' || p[2] == '/') {
-                    return 1;
-                }
+        if (p[0] == '.' && p[1] == '.') {
+            if ((p == path || p[-1] == '/') &&
+                (p[2] == '\0' || p[2] == '/')) {
+                return 1;
             }
         }
         p++;
@@ -167,7 +166,7 @@ static void send_response(int client, int status, const char* status_text,
     total = 0;
     while (total < strlen(header)) {
         sent = send(client, header + total, strlen(header) - total, 0);
-        if (sent < 0) {
+        if (sent <= 0) {
             return;
         }
         total += sent;
@@ -177,7 +176,7 @@ static void send_response(int client, int status, const char* status_text,
         total = 0;
         while (total < body_len) {
             sent = send(client, body + total, body_len - total, 0);
-            if (sent < 0) {
+            if (sent <= 0) {
                 return;
             }
             total += sent;
@@ -269,7 +268,7 @@ static void send_file_response_full(int client, const char* path, int is_head)
     total = 0;
     while (total < strlen(header)) {
         sent = send(client, header + total, strlen(header) - total, 0);
-        if (sent < 0) {
+        if (sent <= 0) {
             close(fd);
             return;
         }
@@ -285,7 +284,7 @@ static void send_file_response_full(int client, const char* path, int is_head)
         total = 0;
         while (total < (size_t)n) {
             sent = send(client, buf + total, n - total, 0);
-            if (sent < 0) {
+            if (sent <= 0) {
                 close(fd);
                 return;
             }
@@ -296,7 +295,8 @@ static void send_file_response_full(int client, const char* path, int is_head)
     close(fd);
 }
 
-#define send_file_response(client, path) send_file_response_full((client), (path), 0)
+#define send_file_response(client, path) \
+    do { send_file_response_full((client), (path), 0); } while (0)
 
 /* Forward declaration */
 static void send_directory_listing(int client, const char* root, const char* uri);
@@ -347,10 +347,18 @@ static void serve_request_path(int client, const char* root,
     char path[MAX_PATH];
     struct stat st;
     
-    if (decoded_uri[0] == '/') {
-        snprintf(path, sizeof(path), "%s%s", root, decoded_uri);
-    } else {
-        snprintf(path, sizeof(path), "%s/%s", root, decoded_uri);
+    {
+        int n;
+        if (decoded_uri[0] == '/') {
+            n = snprintf(path, sizeof(path), "%s%s", root, decoded_uri);
+        } else {
+            n = snprintf(path, sizeof(path), "%s/%s", root, decoded_uri);
+        }
+        if (n < 0 || (size_t)n >= sizeof(path)) {
+            send_response(client, 414, "URI Too Long", "text/html",
+                          "<h1>414 URI Too Long</h1>", 24);
+            return;
+        }
     }
     
     if (stat(path, &st) == 0) {
@@ -494,6 +502,7 @@ static void send_directory_listing(int client, const char* root, const char* uri
         struct stat entry_st;
         char full_path[MAX_PATH];
         int is_dir;
+        int n;
         
         if (name[0] == '.' || strcmp(name, "..") == 0) {
             continue;
@@ -502,11 +511,14 @@ static void send_directory_listing(int client, const char* root, const char* uri
         snprintf(full_path, sizeof(full_path), "%s/%s", path, name);
         is_dir = (stat(full_path, &entry_st) == 0 && S_ISDIR(entry_st.st_mode));
         
-        html_len += snprintf(html + html_len, sizeof(html) - html_len,
-                             "<li><a href=\"%s%s\" %s>%s%s</a></li>\n",
-                             name, is_dir ? "/" : "",
-                             is_dir ? "class=\"dir\"" : "",
-                             name, is_dir ? "/" : "");
+        n = snprintf(html + html_len, sizeof(html) - html_len,
+                     "<li><a href=\"%s%s\" %s>%s%s</a></li>\n",
+                     name, is_dir ? "/" : "",
+                     is_dir ? "class=\"dir\"" : "",
+                     name, is_dir ? "/" : "");
+        if (n > 0) {
+            html_len += (size_t)n;
+        }
         
         if (html_len >= sizeof(html) - 256) {
             break;
@@ -515,11 +527,19 @@ static void send_directory_listing(int client, const char* root, const char* uri
     
     closedir(dir);
     
-    html_len += snprintf(html + html_len, sizeof(html) - html_len,
+    {
+        int n = snprintf(html + html_len, sizeof(html) - html_len,
                          "</ul>\n"
                          "</body>\n"
                          "</html>\n");
+        if (n > 0) {
+            html_len += (size_t)n;
+        }
+    }
     
+    if (html_len > sizeof(html)) {
+        html_len = sizeof(html);
+    }
     send_response(client, 200, "OK", "text/html; charset=utf-8", html, html_len);
 }
 

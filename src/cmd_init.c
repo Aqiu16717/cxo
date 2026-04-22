@@ -156,6 +156,42 @@ static int create_sample_post(void)
     return CXO_OK;
 }
 
+/* Default tag template */
+static const char* tag_template =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"{{lang}}\">\n"
+    "<head>\n"
+    "<meta charset=\"UTF-8\">\n"
+    "<title>{{site_title}} - {{tag_name}}</title>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "</head>\n"
+    "<body>\n"
+    "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
+    "<h1>{{tag_name}}</h1>\n"
+    "<ul class=\"post-list\">\n"
+    "{{entry_list}}"
+    "</ul>\n"
+    "</body>\n"
+    "</html>\n";
+
+/* Default archive template */
+static const char* archive_template =
+    "<!DOCTYPE html>\n"
+    "<html lang=\"{{lang}}\">\n"
+    "<head>\n"
+    "<meta charset=\"UTF-8\">\n"
+    "<title>{{site_title}} - {{archive_title}}</title>\n"
+    "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "</head>\n"
+    "<body>\n"
+    "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
+    "<h1>{{archive_title}}</h1>\n"
+    "<ul class=\"post-list\">\n"
+    "{{entry_list}}"
+    "</ul>\n"
+    "</body>\n"
+    "</html>\n";
+
 /* Create theme files */
 static int create_theme_files(void)
 {
@@ -167,6 +203,12 @@ static int create_theme_files(void)
     
     write_file("themes/default/index.html", index_template);
     printf("Created: themes/default/index.html\n");
+    
+    write_file("themes/default/tag.html", tag_template);
+    printf("Created: themes/default/tag.html\n");
+    
+    write_file("themes/default/archive.html", archive_template);
+    printf("Created: themes/default/archive.html\n");
     return CXO_OK;
 }
 

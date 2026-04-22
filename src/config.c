@@ -76,7 +76,10 @@ int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
         ctx->site_description = toml_string_or(site, "description", arena,
                                                 ctx->site_description);
         ctx->base_url = toml_string_or(site, "base_url", arena, ctx->base_url);
-        ctx->posts_per_page = (size_t)toml_int_or(site, "posts_per_page", 0);
+        {
+            long pp = toml_int_or(site, "posts_per_page", 0);
+            ctx->posts_per_page = (pp > 0) ? (size_t)pp : 0;
+        }
     }
     
     /* Read [theme] section */

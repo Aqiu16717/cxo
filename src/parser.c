@@ -452,19 +452,27 @@ void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
     
     /* Fix duplicate IDs */
     for (i = 0; i < hcount; i++) {
-        size_t k;
-        int dup_count = 0;
-        for (k = 0; k < i; k++) {
-            if (strcmp(headings[k].id, headings[i].id) == 0) {
-                dup_count++;
+        size_t id_buf_size = strlen(headings[i].text) * 2 + 32;
+        int suffix = 1;
+        char base_id[256];
+        
+        strncpy(base_id, headings[i].id, sizeof(base_id) - 1);
+        base_id[sizeof(base_id) - 1] = '\0';
+        
+        while (1) {
+            size_t k;
+            int dup = 0;
+            for (k = 0; k < i; k++) {
+                if (strcmp(headings[k].id, headings[i].id) == 0) {
+                    dup = 1;
+                    break;
+                }
             }
-        }
-        if (dup_count > 0) {
-            char suffix[16];
-            size_t id_buf_size = strlen(headings[i].text) * 2 + 32;
-            snprintf(suffix, sizeof(suffix), "-%d", dup_count + 1);
-            strncat(headings[i].id, suffix,
-                    id_buf_size - strlen(headings[i].id) - 1);
+            if (!dup) {
+                break;
+            }
+            snprintf(headings[i].id, id_buf_size, "%s-%d",
+                     base_id, ++suffix);
         }
     }
     

@@ -242,7 +242,11 @@ static char* replace_var(arena_t* arena, const char* tmpl,
         return arena_strdup(arena, tmpl);
     }
     
-    result_len = strlen(tmpl) + count * (strlen(value) - ph_len) + 1;
+    {
+        size_t value_len = strlen(value);
+        size_t extra = (value_len > ph_len) ? (value_len - ph_len) : 0;
+        result_len = strlen(tmpl) + count * extra + 1;
+    }
     result = arena_alloc(arena, result_len);
     if (!result) {
         return NULL;
@@ -548,6 +552,8 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
 static int write_html(const char* path, const char* html)
 {
     FILE* fp;
+    size_t len;
+    size_t written;
     
     fp = fopen(path, "w");
     if (!fp) {
@@ -555,8 +561,14 @@ static int write_html(const char* path, const char* html)
         return CXO_ERR_IO;
     }
     
-    fprintf(fp, "%s", html);
+    len = strlen(html);
+    written = fprintf(fp, "%s", html);
     fclose(fp);
+    
+    if (written != len) {
+        fprintf(stderr, "Error: Failed to write %s (disk full?)\n", path);
+        return CXO_ERR_IO;
+    }
     return CXO_OK;
 }
 
@@ -1051,6 +1063,12 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena __attribute__((unused))
             "</channel>\n"
             "</rss>\n");
     
+    if (ferror(fp)) {
+        fclose(fp);
+        fprintf(stderr, "Error: Write failed for %s\n", path);
+        return CXO_ERR_IO;
+    }
+    
     fclose(fp);
     printf("Generated: %s\n", path);
     return CXO_OK;
@@ -1227,6 +1245,13 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
     }
     
     fprintf(fp, "</urlset>\n");
+    
+    if (ferror(fp)) {
+        fclose(fp);
+        fprintf(stderr, "Error: Write failed for %s\n", path);
+        return CXO_ERR_IO;
+    }
+    
     fclose(fp);
     printf("Generated: %s\n", path);
     return CXO_OK;
@@ -1341,7 +1366,6 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     char path[MAX_OUTPUT_PATH];
     char* list_html;
     char* html;
-    FILE* fp;
     const char* subdir;
     
     list_html = build_tag_entry_list(ctx, arena, tag, lang);
@@ -1377,18 +1401,12 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     }
     html = replace_var(arena, html, "hotreload",
                        hotreload_enabled() ? hotreload_script : "");
-    
-    snprintf(path, sizeof(path), "%s/%s/%s.html", output_dir, subdir, tag);
-    fp = fopen(path, "w");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot write %s\n", path);
-        return CXO_ERR_IO;
+    if (!html) {
+        html = "";
     }
     
-    fprintf(fp, "%s", html);
-    fclose(fp);
-    printf("Generated: %s\n", path);
-    return CXO_OK;
+    snprintf(path, sizeof(path), "%s/%s/%s.html", output_dir, subdir, tag);
+    return write_html(path, html);
 }
 
 /* Build entry list for archives matching year/month and language */
@@ -1460,7 +1478,6 @@ static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
     char path[MAX_OUTPUT_PATH];
     char* list_html;
     char* html;
-    FILE* fp;
     const char* prefix;
     char title[64];
     
@@ -1517,17 +1534,11 @@ static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
     }
     html = replace_var(arena, html, "hotreload",
                        hotreload_enabled() ? hotreload_script : "");
-    
-    fp = fopen(path, "w");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot write %s\n", path);
-        return CXO_ERR_IO;
+    if (!html) {
+        html = "";
     }
     
-    fprintf(fp, "%s", html);
-    fclose(fp);
-    printf("Generated: %s\n", path);
-    return CXO_OK;
+    return write_html(path, html);
 }
 
 /* Render all archive pages for a language */
@@ -1591,19 +1602,27 @@ static int render_archive_pages(cxo_context_t* ctx, arena_t* arena,
     
     /* Render year archives */
     for (y = 0; y < year_count; y++) {
-        render_archive_page(ctx, arena, output_dir, lang, years[y], NULL, tmpl);
+        int rc = render_archive_page(ctx, arena, output_dir, lang,
+                                      years[y], NULL, tmpl);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
     }
     
     /* Render month archives */
     for (m = 0; m < month_count; m++) {
         char yr[5];
         char mo[3];
+        int rc;
         memcpy(yr, months[m], 4);
         yr[4] = '\0';
         mo[0] = months[m][5];
         mo[1] = months[m][6];
         mo[2] = '\0';
-        render_archive_page(ctx, arena, output_dir, lang, yr, mo, tmpl);
+        rc = render_archive_page(ctx, arena, output_dir, lang, yr, mo, tmpl);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
     }
     
     return CXO_OK;
@@ -1617,7 +1636,6 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
 {
     char path[MAX_OUTPUT_PATH];
     char dir_path[MAX_OUTPUT_PATH];
-    FILE* fp;
     char* entry_list;
     char* html;
     char* pagination;
@@ -1692,16 +1710,7 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
         html = "";
     }
     
-    fp = fopen(path, "w");
-    if (!fp) {
-        fprintf(stderr, "Error: Cannot write %s\n", path);
-        return CXO_ERR_IO;
-    }
-    
-    fprintf(fp, "%s", html);
-    fclose(fp);
-    printf("Generated: %s\n", path);
-    return CXO_OK;
+    return write_html(path, html);
 }
 
 /* Generate index page(s) with pagination */
@@ -1773,8 +1782,14 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     /* Generate index pages */
     {
         char* index_tmpl = load_index_template(arena, ctx->theme_path);
-        render_index(ctx, arena, output_dir, "zh", index_tmpl);
-        render_index(ctx, arena, output_dir, "en", index_tmpl);
+        rc = render_index(ctx, arena, output_dir, "zh", index_tmpl);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
+        rc = render_index(ctx, arena, output_dir, "en", index_tmpl);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
     }
     
     /* Generate tag pages */
@@ -1786,26 +1801,47 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
         
         tag_count = collect_unique_tags(ctx, unique_tags);
         for (t = 0; t < tag_count; t++) {
-            render_tag_page(ctx, arena, output_dir, "zh", unique_tags[t],
-                            tag_tmpl);
-            render_tag_page(ctx, arena, output_dir, "en", unique_tags[t],
-                            tag_tmpl);
+            rc = render_tag_page(ctx, arena, output_dir, "zh", unique_tags[t],
+                                 tag_tmpl);
+            if (CXO_IS_ERR(rc)) {
+                return rc;
+            }
+            rc = render_tag_page(ctx, arena, output_dir, "en", unique_tags[t],
+                                 tag_tmpl);
+            if (CXO_IS_ERR(rc)) {
+                return rc;
+            }
         }
     }
     
     /* Generate archive pages */
     {
         char* archive_tmpl = load_archive_template(arena, ctx->theme_path);
-        render_archive_pages(ctx, arena, output_dir, "zh", archive_tmpl);
-        render_archive_pages(ctx, arena, output_dir, "en", archive_tmpl);
+        rc = render_archive_pages(ctx, arena, output_dir, "zh", archive_tmpl);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
+        rc = render_archive_pages(ctx, arena, output_dir, "en", archive_tmpl);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
     }
     
     /* Generate RSS feeds */
-    render_rss(ctx, arena, output_dir, "zh");
-    render_rss(ctx, arena, output_dir, "en");
+    rc = render_rss(ctx, arena, output_dir, "zh");
+    if (CXO_IS_ERR(rc)) {
+        return rc;
+    }
+    rc = render_rss(ctx, arena, output_dir, "en");
+    if (CXO_IS_ERR(rc)) {
+        return rc;
+    }
     
     /* Generate sitemap */
-    render_sitemap(ctx, arena, output_dir);
+    rc = render_sitemap(ctx, arena, output_dir);
+    if (CXO_IS_ERR(rc)) {
+        return rc;
+    }
     
     printf("Rendered %d/%zu entries\n", success, ctx->count);
     
