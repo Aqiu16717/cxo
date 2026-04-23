@@ -201,7 +201,7 @@ static void send_sse_headers(int client)
     total = 0;
     while (total < strlen(header)) {
         sent = send(client, header + total, strlen(header) - total, 0);
-        if (sent < 0) {
+        if (sent <= 0) {
             return;
         }
         total += sent;
@@ -461,7 +461,14 @@ static void send_directory_listing(int client, const char* root, const char* uri
     size_t html_len;
     int is_root;
     
-    snprintf(path, sizeof(path), "%s%s", root, uri);
+    {
+        int n = snprintf(path, sizeof(path), "%s%s", root, uri);
+        if (n < 0 || (size_t)n >= sizeof(path)) {
+            send_response(client, 414, "URI Too Long", "text/html",
+                          "<h1>414 URI Too Long</h1>", 24);
+            return;
+        }
+    }
     dir = opendir(path);
     if (!dir) {
         send_response(client, 403, "Forbidden", "text/html",
@@ -471,26 +478,29 @@ static void send_directory_listing(int client, const char* root, const char* uri
     
     is_root = (strcmp(uri, "/") == 0);
     
-    html_len = snprintf(html, sizeof(html),
-                        "<!DOCTYPE html>\n"
-                        "<html>\n"
-                        "<head>\n"
-                        "<meta charset=\"UTF-8\">\n"
-                        "<title>Index of %s</title>\n"
-                        "<style>\n"
-                        "body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }\n"
-                        "h1 { border-bottom: 1px solid #ddd; padding-bottom: 10px; }\n"
-                        "ul { list-style: none; padding: 0; }\n"
-                        "li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }\n"
-                        "a { text-decoration: none; color: #0366d6; }\n"
-                        "a:hover { text-decoration: underline; }\n"
-                        ".dir { font-weight: bold; }\n"
-                        "</style>\n"
-                        "</head>\n"
-                        "<body>\n"
-                        "<h1>Index of %s</h1>\n"
-                        "<ul>\n",
-                        uri, uri);
+    {
+        int n = snprintf(html, sizeof(html),
+                         "<!DOCTYPE html>\n"
+                         "<html>\n"
+                         "<head>\n"
+                         "<meta charset=\"UTF-8\">\n"
+                         "<title>Index of %s</title>\n"
+                         "<style>\n"
+                         "body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }\n"
+                         "h1 { border-bottom: 1px solid #ddd; padding-bottom: 10px; }\n"
+                         "ul { list-style: none; padding: 0; }\n"
+                         "li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; }\n"
+                         "a { text-decoration: none; color: #0366d6; }\n"
+                         "a:hover { text-decoration: underline; }\n"
+                         ".dir { font-weight: bold; }\n"
+                         "</style>\n"
+                         "</head>\n"
+                         "<body>\n"
+                         "<h1>Index of %s</h1>\n"
+                         "<ul>\n",
+                         uri, uri);
+        html_len = (n > 0) ? (size_t)n : 0;
+    }
     
     if (!is_root) {
         html_len += snprintf(html + html_len, sizeof(html) - html_len,
@@ -508,7 +518,12 @@ static void send_directory_listing(int client, const char* root, const char* uri
             continue;
         }
         
-        snprintf(full_path, sizeof(full_path), "%s/%s", path, name);
+        {
+            int n = snprintf(full_path, sizeof(full_path), "%s/%s", path, name);
+            if (n < 0 || (size_t)n >= sizeof(full_path)) {
+                continue;
+            }
+        }
         is_dir = (stat(full_path, &entry_st) == 0 && S_ISDIR(entry_st.st_mode));
         
         n = snprintf(html + html_len, sizeof(html) - html_len,

@@ -597,6 +597,11 @@ static int render_entry(cxo_entry_t* entry, cxo_context_t* ctx,
     }
     
     html = generate_html(entry, ctx, arena, tmpl);
+    if (!html) {
+        fprintf(stderr, "Error: Failed to generate HTML for %s\n", entry->slug);
+        return CXO_ERR_RENDER;
+    }
+    
     snprintf(path, sizeof(path), "%s/%s/%s.html",
              output_dir, subdir, entry->slug);
     
