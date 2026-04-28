@@ -53,10 +53,12 @@ cxo version            # or: cxo -v
   - Tag template additionally supports: `{{tag_name}}`, `{{entry_list}}`
 - **Hot reload**: `cxo serve -w` watches `content/`, `themes/`, `config.toml`
 - **Draft mode**: Skip drafts unless `CXO_DRAFT=1` is set
+- **Pagination**: Configurable `posts_per_page` in `config.toml`; entries sorted newest-first
 - **RSS**: Generates `public/rss.xml` and `public/en/rss.xml`
 - **Archives**: Auto-generates year (`/2026/`) and month (`/2026/04/`) archive pages
-- **Sitemap**: Generates `public/sitemap.xml`
+- **Sitemap**: Generates `public/sitemap.xml`; includes posts, paginated pages, and archive pages
 - **Syntax highlighting**: highlight.js via CDN in default theme
+- **Template fallback**: Hardcoded fallback templates if theme files are missing
 
 ## Content Format
 
@@ -74,12 +76,29 @@ tags: [tag1, tag2]
 Content here...
 ```
 
+- `slug` - URL slug; defaults to `id` if omitted
 - `description` - Shown on index page and post page; auto-generated from content if omitted
 - `tags` - Comma-separated list; generates tag pages and links on posts
+- `draft` - Set to `true` to exclude from build (unless `CXO_DRAFT=1`)
+
+## Config
+
+`config.toml` supports:
+
+```toml
+[site]
+title = "My Blog"
+description = "A minimalist blog powered by CXO"
+base_url = "https://example.com"
+posts_per_page = 10   # 0 or omit for no pagination
+
+[theme]
+path = "themes/default"
+```
 
 ## Table of Contents
 
-Posts automatically generate a table of contents from HTML headings (h1-h6). Use `{{toc}}` in `post.html` to display it. Heading anchors are auto-generated from heading text.
+Posts automatically generate a table of contents from HTML headings (h1-h6). Use `{{toc}}` in `post.html` to display it. Heading anchors are auto-generated from heading text; duplicate IDs are deduplicated with numeric suffixes (`foo-2`, `foo-3`).
 
 ## Error Codes
 
