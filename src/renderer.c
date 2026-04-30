@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <ctype.h>
+#include <dirent.h>
 #include "../include/cxo.h"
 
 #define MAX_OUTPUT_PATH 4096
@@ -163,12 +164,12 @@ static int copy_file(const char* src, const char* dst)
     char buf[4096];
     size_t n;
     
-    in = fopen(src, "r");
+    in = fopen(src, "rb");
     if (!in) {
         return CXO_ERR_IO;
     }
     
-    out = fopen(dst, "w");
+    out = fopen(dst, "wb");
     if (!out) {
         fclose(in);
         return CXO_ERR_IO;
@@ -181,6 +182,80 @@ static int copy_file(const char* src, const char* dst)
     fclose(in);
     fclose(out);
     return CXO_OK;
+}
+
+/* Recursively copy directory contents from src to dst */
+static int copy_dir_recursive(const char* src, const char* dst)
+{
+    DIR* dir;
+    struct dirent* entry;
+    struct stat st;
+    int rc;
+    
+    dir = opendir(src);
+    if (!dir) {
+        return CXO_ERR_IO;
+    }
+    
+    rc = CXO_OK;
+    while ((entry = readdir(dir)) != NULL && !CXO_IS_ERR(rc)) {
+        char src_path[MAX_OUTPUT_PATH];
+        char dst_path[MAX_OUTPUT_PATH];
+        int n;
+        
+        if (entry->d_name[0] == '.' ||
+            strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        
+        n = snprintf(src_path, sizeof(src_path),
+                     "%s/%s", src, entry->d_name);
+        if (n < 0 || (size_t)n >= sizeof(src_path)) {
+            continue;
+        }
+        
+        n = snprintf(dst_path, sizeof(dst_path),
+                     "%s/%s", dst, entry->d_name);
+        if (n < 0 || (size_t)n >= sizeof(dst_path)) {
+            continue;
+        }
+        
+        if (stat(src_path, &st) != 0) {
+            continue;
+        }
+        
+        if (S_ISDIR(st.st_mode)) {
+            if (mkdir(dst_path, 0755) != 0 && errno != EEXIST) {
+                rc = CXO_ERR_IO;
+            } else {
+                rc = copy_dir_recursive(src_path, dst_path);
+            }
+        } else if (S_ISREG(st.st_mode)) {
+            rc = copy_file(src_path, dst_path);
+        }
+    }
+    
+    closedir(dir);
+    return rc;
+}
+
+/* Copy static/ directory to output dir if it exists */
+static int copy_static_files(const char* output_dir)
+{
+    struct stat st;
+    char dst[MAX_OUTPUT_PATH];
+    int n;
+    
+    if (stat("static", &st) != 0 || !S_ISDIR(st.st_mode)) {
+        return CXO_OK;
+    }
+    
+    n = snprintf(dst, sizeof(dst), "%s", output_dir);
+    if (n < 0 || (size_t)n >= sizeof(dst)) {
+        return CXO_ERR_IO;
+    }
+    
+    return copy_dir_recursive("static", dst);
 }
 
 /* Count occurrences */
@@ -1846,6 +1921,12 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     rc = render_sitemap(ctx, arena, output_dir);
     if (CXO_IS_ERR(rc)) {
         return rc;
+    }
+    
+    /* Copy static assets */
+    rc = copy_static_files(output_dir);
+    if (CXO_IS_ERR(rc)) {
+        fprintf(stderr, "Warning: Failed to copy static files\n");
     }
     
     printf("Rendered %d/%zu entries\n", success, ctx->count);

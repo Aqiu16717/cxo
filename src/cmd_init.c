@@ -132,6 +132,7 @@ static int create_project_dirs(void)
     mkdir_p("content/zh");
     mkdir_p("content/en");
     mkdir_p("themes/default");
+    mkdir_p("static");
     return CXO_OK;
 }
 

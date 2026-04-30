@@ -59,6 +59,7 @@ cxo version            # or: cxo -v
 - **Sitemap**: Generates `public/sitemap.xml`; includes posts, paginated pages, and archive pages
 - **Syntax highlighting**: highlight.js via CDN in default theme
 - **Template fallback**: Hardcoded fallback templates if theme files are missing
+- **Static assets**: `static/` directory recursively copied to `public/` on build
 
 ## Content Format
 

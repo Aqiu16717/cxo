@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 int main(void)
 {
@@ -51,6 +52,17 @@ int main(void)
         return 1;
     }
     printf("PASS: linked entries\n");
+    
+    /* Create test static asset */
+    {
+        FILE* fp;
+        mkdir("static", 0755);
+        fp = fopen("static/test_asset.txt", "w");
+        if (fp) {
+            fprintf(fp, "static asset test\n");
+            fclose(fp);
+        }
+    }
     
     /* Render */
     printf("\nRendering site...\n");
@@ -227,6 +239,42 @@ int main(void)
         }
         printf("  Found next nav in hello.html\n");
     }
+    
+    /* Verify static files copied */
+    if (stat("public/test_asset.txt", &st) != 0) {
+        printf("FAIL: public/test_asset.txt not found\n");
+        arena_destroy(arena);
+        return 1;
+    }
+    printf("  Found: public/test_asset.txt\n");
+    
+    {
+        FILE* fp;
+        char buf[64];
+        size_t n;
+        
+        fp = fopen("public/test_asset.txt", "r");
+        if (!fp) {
+            printf("FAIL: cannot read public/test_asset.txt\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        n = fread(buf, 1, sizeof(buf) - 1, fp);
+        buf[n] = '\0';
+        fclose(fp);
+        
+        if (strstr(buf, "static asset test") == NULL) {
+            printf("FAIL: static file content mismatch\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Static file content correct\n");
+    }
+    
+    /* Cleanup test static asset */
+    remove("static/test_asset.txt");
+    rmdir("static");
+    remove("public/test_asset.txt");
     
     arena_destroy(arena);
     printf("\nPASS: cleanup\n");
