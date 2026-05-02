@@ -104,7 +104,7 @@ int cxo_link_entries(cxo_context_t* ctx, arena_t* arena)
         cxo_entry_t* existing;
         
         if (!entry->id) {
-            fprintf(stderr, "Warning: entry %zu has no id, skipping\n", i);
+            fprintf(stderr, "Warning: entry %lu has no id, skipping\n", (unsigned long)i);
             continue;
         }
         

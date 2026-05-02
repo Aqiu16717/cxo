@@ -36,7 +36,7 @@ int main(void)
         arena_destroy(arena);
         return 1;
     }
-    printf("PASS: scanned %zu entries\n", ctx->count);
+    printf("PASS: scanned %lu entries\n", (unsigned long)ctx->count);
     
     /* Find hello entry for detailed test */
     entry = NULL;
@@ -69,7 +69,7 @@ int main(void)
     printf("  slug: %s\n", entry->slug ? entry->slug : "(null)");
     printf("  description: %s\n",
            entry->description ? entry->description : "(null)");
-    printf("  tags: %zu\n", entry->tag_count);
+    printf("  tags: %lu\n", (unsigned long)entry->tag_count);
     
     /* Verify description and tags */
     if (!entry->description || strlen(entry->description) == 0) {
@@ -80,7 +80,7 @@ int main(void)
     printf("PASS: description present\n");
     
     if (entry->tag_count != 2) {
-        printf("FAIL: expected 2 tags, got %zu\n", entry->tag_count);
+        printf("FAIL: expected 2 tags, got %lu\n", (unsigned long)entry->tag_count);
         arena_destroy(arena);
         return 1;
     }
@@ -110,7 +110,7 @@ int main(void)
         entry = ctx->entries[i];
         ret = cxo_parse_markdown(entry, arena, NULL);
         if (CXO_IS_ERR(ret)) {
-            printf("  FAIL: entry %zu (%s)\n", i, entry->slug);
+            printf("  FAIL: entry %lu (%s)\n", (unsigned long)i, entry->slug);
         } else {
             printf("  OK: %s - \"%s\"\n", entry->slug, entry->title);
         }

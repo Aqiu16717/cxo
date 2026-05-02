@@ -3,14 +3,14 @@
 # MIT License
 
 # Platform detection
-UNAME_S := $(shell uname -s)
+UNAME_S := $(shell uname -s 2>/dev/null || echo Unknown)
 
 # Compiler settings
 ifeq ($(UNAME_S),Darwin)
     # macOS - use clang
     CC = clang
 else
-    # Linux and others - use gcc
+    # Linux, MinGW, MSYS2 - use gcc
     CC = gcc
 endif
 
@@ -24,6 +24,15 @@ BINDIR = $(PREFIX)/bin
 
 # Libraries (empty - all dependencies embedded)
 LIBS =
+
+# Platform-specific commands
+ifeq ($(OS),Windows_NT)
+    RM = cmd /c del /f /q 2>nul
+    RMDIR = cmd /c rmdir /s /q 2>nul
+else
+    RM = rm -f
+    RMDIR = rm -rf
+endif
 
 # Source files
 CXO_SRCS = src/main.c src/cmd_init.c src/cmd_serve.c src/cmd_deploy.c src/config.c src/renderer.c \
@@ -96,14 +105,14 @@ test: $(TEST_TARGETS)
 
 # Clean build artifacts (only build files, preserve public/)
 clean:
-	rm -f $(OBJS) $(DEPS) $(TARGET)
-	rm -f $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser $(TEST_DIR)/test_linker
-	rm -f $(TEST_DIR)/test_config $(TEST_DIR)/test_renderer
-	rm -f src/cmark/*.o src/cmark/*.d
+	-$(RM) $(OBJS) $(DEPS) $(TARGET)
+	-$(RM) $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser $(TEST_DIR)/test_linker
+	-$(RM) $(TEST_DIR)/test_config $(TEST_DIR)/test_renderer
+	-$(RM) src/cmark/*.o src/cmark/*.d
 
 # Deep clean including generated site
 distclean: clean
-	rm -rf public/
+	-$(RMDIR) public/
 
 # Install
 install: $(TARGET)

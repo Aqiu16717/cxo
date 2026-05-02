@@ -31,13 +31,13 @@ int main(void)
         arena_destroy(arena);
         return 1;
     }
-    printf("PASS: scanned %zu entries\n", ctx->count);
+    printf("PASS: scanned %lu entries\n", (unsigned long)ctx->count);
     
     /* Parse */
     for (size_t i = 0; i < ctx->count; i++) {
         rc = cxo_parse_markdown(ctx->entries[i], arena, NULL);
         if (CXO_IS_ERR(rc)) {
-            printf("FAIL: parse entry %zu\n", i);
+            printf("FAIL: parse entry %lu\n", (unsigned long)i);
             arena_destroy(arena);
             return 1;
         }
@@ -56,7 +56,7 @@ int main(void)
     /* Create test static asset */
     {
         FILE* fp;
-        mkdir("static", 0755);
+        cxo_mkdir("static");
         fp = fopen("static/test_asset.txt", "w");
         if (fp) {
             fprintf(fp, "static asset test\n");

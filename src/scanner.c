@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <errno.h>
+#include "../include/platform.h"
 #include "../include/cxo.h"
 
 #define MAX_PATH_LEN 4096

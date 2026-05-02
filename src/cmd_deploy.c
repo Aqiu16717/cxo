@@ -7,12 +7,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include "../include/platform.h"
+#include "../include/cxo.h"
+
+#ifndef _WIN32
+#include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
-#include <errno.h>
-#include "../include/cxo.h"
+#endif
 
 #define BUFFER_SIZE 1024
 
@@ -22,7 +26,7 @@ static int exec_cmd(const char* cmd, char* output, size_t size)
     FILE* fp;
     size_t len;
     
-    fp = popen(cmd, "r");
+    fp = cxo_popen(cmd, "r");
     if (!fp) {
         return -1;
     }
@@ -38,12 +42,15 @@ static int exec_cmd(const char* cmd, char* output, size_t size)
         }
     }
     
-    return pclose(fp);
+    return cxo_pclose(fp);
 }
 
 /* Run command via execvp to avoid shell injection */
 static int run_cmd(const char* argv[])
 {
+#ifdef _WIN32
+    return cxo_spawnvp(CXO_P_WAIT, argv[0], (const char* const*)argv);
+#else
     pid_t pid;
     int status;
     
@@ -63,11 +70,17 @@ static int run_cmd(const char* argv[])
         return WEXITSTATUS(status);
     }
     return -1;
+#endif
 }
 
 /* Check if command exists */
 static int cmd_exists(const char* cmd)
 {
+#ifdef _WIN32
+    char buf[256];
+    snprintf(buf, sizeof(buf), "where %s >NUL 2>NUL", cmd);
+    return system(buf) == 0;
+#else
     const char* argv[] = {"which", cmd, NULL};
     int devnull = open("/dev/null", O_WRONLY);
     int saved_stderr = dup(STDERR_FILENO);
@@ -90,18 +103,27 @@ static int cmd_exists(const char* cmd)
     close(saved_stderr);
     
     return ret == 0;
+#endif
 }
 
 /* Get git remote URL */
 static int get_remote_url(char* url, size_t size)
 {
+#ifdef _WIN32
+    return exec_cmd("git remote get-url origin 2>NUL", url, size);
+#else
     return exec_cmd("git remote get-url origin 2>/dev/null", url, size);
+#endif
 }
 
 /* Check if we're in a git repo */
 static int is_git_repo(void)
 {
+#ifdef _WIN32
+    return system("git rev-parse --git-dir >NUL 2>NUL") == 0;
+#else
     return system("git rev-parse --git-dir > /dev/null 2>&1") == 0;
+#endif
 }
 
 /* Build site before deploy */
@@ -110,7 +132,11 @@ static int build_site(void)
     const char* argv[] = {"./cxo", "build", NULL};
     printf("Building site...\n");
     /* Clean and rebuild to ensure no stale files */
+#ifdef _WIN32
+    system("rmdir /s /q public 2>nul && mkdir public");
+#else
     system("rm -rf public/");
+#endif
     if (run_cmd(argv) != 0) {
         fprintf(stderr, "Error: Build failed\n");
         return -1;
@@ -215,10 +241,18 @@ static int deploy_to_gh_pages(void)
     }
     
     /* Remove all files except public/ */
+#ifdef _WIN32
+    system("git rm -rf . >NUL 2>NUL");
+#else
     system("git rm -rf . > /dev/null 2>&1");
+#endif
     
     /* Move public files to root */
+#ifdef _WIN32
+    system("xcopy /e /i /y public . >NUL 2>NUL && rmdir /s /q public");
+#else
     system("mv public/* . 2>/dev/null; mv public/.* . 2>/dev/null; rmdir public 2>/dev/null");
+#endif
     
     if (commit_and_push(current_branch, commit_hash) != 0) {
         switch_back(current_branch);

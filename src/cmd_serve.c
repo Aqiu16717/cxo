@@ -7,24 +7,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <errno.h>
+#include <time.h>
+#include "../include/platform.h"
+#include "../include/cxo.h"
+
+#ifndef _WIN32
+#include <unistd.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <errno.h>
 #include <signal.h>
-#include <time.h>
-#include "../include/cxo.h"
+#endif
 
 #define DEFAULT_PORT 8080
 #define DEFAULT_ROOT "public"
 #define BUFFER_SIZE 8192
-#define MAX_PATH 512
+#define CXO_MAX_PATH 512
 #define MAX_WATCH_PATHS 32
 
 /* Platform-specific defines */
@@ -57,23 +61,25 @@ static const mime_map_t mime_types[] = {
 };
 
 /* Server state */
-static volatile sig_atomic_t server_running = 1;
+static volatile int server_running = 1;
 
 /* Watch state */
 typedef struct {
-    char path[MAX_PATH];
+    char path[CXO_MAX_PATH];
     time_t mtime;
 } watch_path_t;
 
 static watch_path_t watch_paths[MAX_WATCH_PATHS];
 static int watch_count = 0;
 
+#ifndef _WIN32
 /* Signal handler for graceful shutdown */
 static void signal_handler(int sig)
 {
     (void)sig;
     server_running = 0;
 }
+#endif
 
 /* Get MIME type from file extension */
 static const char* get_mime_type(const char* path)
@@ -147,7 +153,7 @@ static void send_response(int client, int status, const char* status_text,
     time_t now;
     struct tm* tm_info;
     char date[64];
-    ssize_t sent;
+    cxo_ssize_t sent;
     size_t total;
     
     time(&now);
@@ -157,11 +163,11 @@ static void send_response(int client, int status, const char* status_text,
     snprintf(header, sizeof(header),
              "HTTP/1.1 %d %s\r\n"
              "Content-Type: %s\r\n"
-             "Content-Length: %zu\r\n"
+             "Content-Length: %lu\r\n"
              "Date: %s\r\n"
              "Connection: close\r\n"
              "\r\n",
-             status, status_text, content_type, body_len, date);
+             status, status_text, content_type, (unsigned long)body_len, date);
     
     total = 0;
     while (total < strlen(header)) {
@@ -188,7 +194,7 @@ static void send_response(int client, int status, const char* status_text,
 static void send_sse_headers(int client)
 {
     char header[256];
-    ssize_t sent;
+    cxo_ssize_t sent;
     size_t total;
     
     snprintf(header, sizeof(header),
@@ -221,8 +227,8 @@ static void send_file_response_full(int client, const char* path, int is_head)
     struct stat st;
     char header[512];
     char buf[BUFFER_SIZE];
-    ssize_t n;
-    ssize_t sent;
+    cxo_ssize_t n;
+    cxo_ssize_t sent;
     size_t total;
     time_t now;
     struct tm* tm_info;
@@ -259,11 +265,11 @@ static void send_file_response_full(int client, const char* path, int is_head)
     snprintf(header, sizeof(header),
              "HTTP/1.1 200 OK\r\n"
              "Content-Type: %s\r\n"
-             "Content-Length: %lld\r\n"
+             "Content-Length: %ld\r\n"
              "Date: %s\r\n"
              "Connection: close\r\n"
              "\r\n",
-             mime, (long long)st.st_size, date);
+             mime, (long)st.st_size, date);
     
     total = 0;
     while (total < strlen(header)) {
@@ -305,7 +311,7 @@ static void send_directory_listing(int client, const char* root, const char* uri
 static int check_sse_client(int client)
 {
     char ping[] = ":ping\n\n";
-    ssize_t sent;
+    cxo_ssize_t sent;
     
     if (client < 0) {
         return 0;
@@ -344,7 +350,7 @@ static int parse_request_line(const char* buf, char* method, char* uri, int* is_
 static void serve_request_path(int client, const char* root,
                                const char* decoded_uri, int is_head)
 {
-    char path[MAX_PATH];
+    char path[CXO_MAX_PATH];
     struct stat st;
     
     {
@@ -363,7 +369,7 @@ static void serve_request_path(int client, const char* root,
     
     if (stat(path, &st) == 0) {
         if (S_ISDIR(st.st_mode)) {
-            char index_path[MAX_PATH];
+            char index_path[CXO_MAX_PATH];
             int ret;
             
             ret = snprintf(index_path, sizeof(index_path),
@@ -388,7 +394,7 @@ static void serve_request_path(int client, const char* root,
     
     /* Try adding .html extension */
     {
-        char html_path[MAX_PATH + 5];
+        char html_path[CXO_MAX_PATH + 5];
         int ret;
         
         ret = snprintf(html_path, sizeof(html_path), "%s.html", path);
@@ -414,7 +420,7 @@ static void handle_request(int client, const char* root, int* sse_client)
     char method[16];
     char uri[MAX_PATH];
     char decoded_uri[MAX_PATH];
-    ssize_t n;
+    cxo_ssize_t n;
     int is_head;
     
     n = recv(client, buf, sizeof(buf) - 1, 0);
@@ -435,7 +441,7 @@ static void handle_request(int client, const char* root, int* sse_client)
     if (strcmp(decoded_uri, "/__cxo_reload") == 0) {
         send_sse_headers(client);
         if (*sse_client >= 0 && *sse_client != client) {
-            close(*sse_client);
+            cxo_close_socket(*sse_client);
         }
         *sse_client = client;
         return;
@@ -454,7 +460,7 @@ static void handle_request(int client, const char* root, int* sse_client)
 /* Generate directory listing HTML */
 static void send_directory_listing(int client, const char* root, const char* uri)
 {
-    char path[MAX_PATH];
+    char path[CXO_MAX_PATH];
     DIR* dir;
     struct dirent* entry;
     char html[4096];
@@ -510,7 +516,7 @@ static void send_directory_listing(int client, const char* root, const char* uri
     while ((entry = readdir(dir)) != NULL) {
         const char* name = entry->d_name;
         struct stat entry_st;
-        char full_path[MAX_PATH];
+        char full_path[CXO_MAX_PATH];
         int is_dir;
         int n;
         
@@ -582,7 +588,7 @@ static void scan_watch_dir(const char* dir)
 {
     DIR* d;
     struct dirent* entry;
-    char path[MAX_PATH];
+    char path[CXO_MAX_PATH];
     struct stat st;
     
     add_watch_path(dir);
@@ -617,11 +623,11 @@ static void init_file_watching(void)
 {
     watch_count = 0;
     
-    if (access("content", F_OK) == 0) {
+    if (cxo_access("content", F_OK) == 0) {
         scan_watch_dir("content");
     }
     
-    if (access("themes", F_OK) == 0) {
+    if (cxo_access("themes", F_OK) == 0) {
         scan_watch_dir("themes");
     }
     
@@ -650,6 +656,26 @@ static int check_file_changes(void)
 /* Run build command */
 static int run_build(void)
 {
+#ifdef _WIN32
+    const char* argv[] = {"cxo", "build", NULL};
+    int ret;
+    
+    printf("\n[reload] Rebuilding...\n");
+    
+    ret = cxo_spawnvp(CXO_P_WAIT, "cxo", argv);
+    if (ret == -1) {
+        const char* argv2[] = {".\\cxo.exe", "build", NULL};
+        ret = cxo_spawnvp(CXO_P_WAIT, ".\\cxo.exe", argv2);
+    }
+    
+    if (ret == 0) {
+        printf("[reload] Build complete\n\n");
+        return 0;
+    } else {
+        printf("[reload] Build failed\n\n");
+        return -1;
+    }
+#else
     pid_t pid;
     int status;
     
@@ -677,25 +703,26 @@ static int run_build(void)
         printf("[reload] Build failed\n\n");
         return -1;
     }
+#endif
 }
 
 /* Create and bind server socket */
-static int setup_server_socket(int port)
+static cxo_socket_t setup_server_socket(int port)
 {
-    int server_fd;
+    cxo_socket_t server_fd;
     struct sockaddr_in server_addr;
     int opt;
     
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_fd < 0) {
+    if (server_fd == CXO_INVALID_SOCKET) {
         perror("socket");
         return -1;
     }
     
     opt = 1;
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt)) < 0) {
         perror("setsockopt");
-        close(server_fd);
+        cxo_close_socket(server_fd);
         return -1;
     }
     
@@ -706,13 +733,13 @@ static int setup_server_socket(int port)
     
     if (bind(server_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
         perror("bind");
-        close(server_fd);
+        cxo_close_socket(server_fd);
         return -1;
     }
     
     if (listen(server_fd, 10) < 0) {
         perror("listen");
-        close(server_fd);
+        cxo_close_socket(server_fd);
         return -1;
     }
     
@@ -722,6 +749,7 @@ static int setup_server_socket(int port)
 /* Set up signal handlers */
 static void setup_signals(void)
 {
+#ifndef _WIN32
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = signal_handler;
@@ -729,6 +757,7 @@ static void setup_signals(void)
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
+#endif
 }
 
 /* Handle a single accepted client connection */
@@ -736,7 +765,7 @@ static void handle_client(int client_fd, int* sse_client)
 {
     handle_request(client_fd, DEFAULT_ROOT, sse_client);
     if (*sse_client != client_fd) {
-        close(client_fd);
+        cxo_close_socket(client_fd);
     }
 }
 
@@ -752,7 +781,7 @@ static void maybe_reload(int* sse_client, time_t* last_check)
     *last_check = now;
     
     if (*sse_client >= 0 && !check_sse_client(*sse_client)) {
-        close(*sse_client);
+        cxo_close_socket(*sse_client);
         *sse_client = -1;
     }
     
@@ -765,7 +794,7 @@ static void maybe_reload(int* sse_client, time_t* last_check)
 }
 
 /* Main server select loop */
-static void server_loop(int server_fd, int rebuild, int* sse_client)
+static void server_loop(cxo_socket_t server_fd, int rebuild, int* sse_client)
 {
     time_t last_check = 0;
     
@@ -773,9 +802,9 @@ static void server_loop(int server_fd, int rebuild, int* sse_client)
         fd_set readfds;
         struct timeval timeout;
         int ret;
-        int client_fd;
+        cxo_socket_t client_fd;
         struct sockaddr_in client_addr;
-        socklen_t client_len;
+        cxo_socklen_t client_len;
         
         FD_ZERO(&readfds);
         FD_SET(server_fd, &readfds);
@@ -786,7 +815,7 @@ static void server_loop(int server_fd, int rebuild, int* sse_client)
         ret = select(server_fd + 1, &readfds, NULL, NULL, &timeout);
         
         if (ret < 0) {
-            if (errno == EINTR) {
+            if (cxo_errno == CXO_EINTR) {
                 continue;
             }
             perror("select");
@@ -808,8 +837,8 @@ static void server_loop(int server_fd, int rebuild, int* sse_client)
         client_len = sizeof(client_addr);
         client_fd = accept(server_fd, (struct sockaddr*)&client_addr, &client_len);
         
-        if (client_fd < 0) {
-            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (client_fd == CXO_INVALID_SOCKET) {
+            if (cxo_errno == CXO_EINTR || cxo_errno == CXO_EAGAIN || cxo_errno == CXO_EWOULDBLOCK) {
                 continue;
             }
             perror("accept");
@@ -823,9 +852,16 @@ static void server_loop(int server_fd, int rebuild, int* sse_client)
 /* Run development server */
 int cmd_serve(int port, int rebuild)
 {
-    int server_fd;
+    cxo_socket_t server_fd;
     struct stat st;
     int sse_client = -1;
+#ifdef _WIN32
+    WSADATA wsa_data;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
+        fprintf(stderr, "Error: WSAStartup failed\n");
+        return CXO_ERR_IO;
+    }
+#endif
     
     if (stat(DEFAULT_ROOT, &st) != 0) {
         fprintf(stderr, "Error: %s/ directory not found\n", DEFAULT_ROOT);
@@ -835,11 +871,11 @@ int cmd_serve(int port, int rebuild)
     
     if (rebuild) {
         init_file_watching();
-        setenv("CXO_HOTRELOAD", "1", 1);
+        cxo_setenv("CXO_HOTRELOAD", "1");
     }
     
     server_fd = setup_server_socket(port);
-    if (server_fd < 0) {
+    if (server_fd == CXO_INVALID_SOCKET) {
         return CXO_ERR_IO;
     }
     
@@ -856,9 +892,12 @@ int cmd_serve(int port, int rebuild)
     
     printf("\nShutting down server...\n");
     if (sse_client >= 0) {
-        close(sse_client);
+        cxo_close_socket(sse_client);
     }
-    close(server_fd);
+    cxo_close_socket(server_fd);
+#ifdef _WIN32
+    WSACleanup();
+#endif
     
     return CXO_OK;
 }

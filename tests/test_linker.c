@@ -28,13 +28,13 @@ int main(void)
         arena_destroy(arena);
         return 1;
     }
-    printf("PASS: scanned %zu entries\n", ctx->count);
+    printf("PASS: scanned %lu entries\n", (unsigned long)ctx->count);
     
     /* Parse all entries first */
     for (size_t i = 0; i < ctx->count; i++) {
         ret = cxo_parse_markdown(ctx->entries[i], arena, NULL);
         if (CXO_IS_ERR(ret)) {
-            printf("FAIL: parse entry %zu\n", i);
+            printf("FAIL: parse entry %lu\n", (unsigned long)i);
             arena_destroy(arena);
             return 1;
         }
@@ -45,7 +45,7 @@ int main(void)
     printf("\nEntries before linking:\n");
     for (size_t i = 0; i < ctx->count; i++) {
         cxo_entry_t* e = ctx->entries[i];
-        printf("  [%zu] id=%s, lang=%s, peer=%p\n",
+        printf("  [%lu] id=%s, lang=%s, peer=%p\n",
                i, e->id, e->lang, (void*)e->peer);
     }
     
@@ -64,20 +64,20 @@ int main(void)
     int linked = 0;
     for (size_t i = 0; i < ctx->count; i++) {
         cxo_entry_t* e = ctx->entries[i];
-        printf("  [%zu] id=%s, lang=%s, peer=%s\n",
+        printf("  [%lu] id=%s, lang=%s, peer=%s\n",
                i, e->id, e->lang,
                e->peer ? "yes" : "null");
         
         if (e->peer) {
             /* Verify bidirectional link */
             if (e->peer->peer != e) {
-                printf("FAIL: broken link at entry %zu\n", i);
+                printf("FAIL: broken link at entry %lu\n", (unsigned long)i);
                 arena_destroy(arena);
                 return 1;
             }
             /* Verify same id */
             if (strcmp(e->id, e->peer->id) != 0) {
-                printf("FAIL: mismatched id at entry %zu\n", i);
+                printf("FAIL: mismatched id at entry %lu\n", (unsigned long)i);
                 arena_destroy(arena);
                 return 1;
             }

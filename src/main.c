@@ -107,7 +107,7 @@ static int do_build(void)
         return ret;
     }
     
-    printf("Found %zu entries\n", ctx->count);
+    printf("Found %lu entries\n", (unsigned long)ctx->count);
     
     process_entries(ctx, arena);
     

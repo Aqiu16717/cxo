@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <dirent.h>
+#include "../include/platform.h"
 #include "../include/cxo.h"
 
 #define MAX_OUTPUT_PATH 4096
@@ -45,6 +46,14 @@ static const char* fallback_archive_template =
     "<meta charset=\"UTF-8\">\n"
     "<title>{{site_title}} - {{archive_title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var s = localStorage.getItem('cxo-theme');\n"
+    "  var d = window.matchMedia('(prefers-color-scheme: dark)').matches;\n"
+    "  if (s === 'dark' || (!s && d)) h.setAttribute('data-theme', 'dark');\n"
+    "})();\n"
+    "</script>\n"
     "</head>\n"
     "<body>\n"
     "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
@@ -52,7 +61,28 @@ static const char* fallback_archive_template =
     "<ul class=\"post-list\">\n"
     "{{entry_list}}"
     "</ul>\n"
-    "{{hotreload}}"
+    "{{hotreload}}\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var b = document.createElement('button');\n"
+    "  b.className = 'theme-toggle';\n"
+    "  b.textContent = h.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';\n"
+    "  b.onclick = function() {\n"
+    "    if (h.getAttribute('data-theme') === 'dark') {\n"
+    "      h.removeAttribute('data-theme');\n"
+    "      localStorage.setItem('cxo-theme', 'light');\n"
+    "      b.textContent = '🌙';\n"
+    "    } else {\n"
+    "      h.setAttribute('data-theme', 'dark');\n"
+    "      localStorage.setItem('cxo-theme', 'dark');\n"
+    "      b.textContent = '☀️';\n"
+    "    }\n"
+    "  };\n"
+    "  var n = document.querySelector('nav');\n"
+    "  if (n) n.appendChild(b);\n"
+    "})();\n"
+    "</script>\n"
     "</body>\n"
     "</html>\n";
 
@@ -64,6 +94,14 @@ static const char* fallback_tag_template =
     "<meta charset=\"UTF-8\">\n"
     "<title>{{site_title}} - {{tag_name}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var s = localStorage.getItem('cxo-theme');\n"
+    "  var d = window.matchMedia('(prefers-color-scheme: dark)').matches;\n"
+    "  if (s === 'dark' || (!s && d)) h.setAttribute('data-theme', 'dark');\n"
+    "})();\n"
+    "</script>\n"
     "</head>\n"
     "<body>\n"
     "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
@@ -71,7 +109,28 @@ static const char* fallback_tag_template =
     "<ul class=\"post-list\">\n"
     "{{entry_list}}"
     "</ul>\n"
-    "{{hotreload}}"
+    "{{hotreload}}\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var b = document.createElement('button');\n"
+    "  b.className = 'theme-toggle';\n"
+    "  b.textContent = h.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';\n"
+    "  b.onclick = function() {\n"
+    "    if (h.getAttribute('data-theme') === 'dark') {\n"
+    "      h.removeAttribute('data-theme');\n"
+    "      localStorage.setItem('cxo-theme', 'light');\n"
+    "      b.textContent = '🌙';\n"
+    "    } else {\n"
+    "      h.setAttribute('data-theme', 'dark');\n"
+    "      localStorage.setItem('cxo-theme', 'dark');\n"
+    "      b.textContent = '☀️';\n"
+    "    }\n"
+    "  };\n"
+    "  var n = document.querySelector('nav');\n"
+    "  if (n) n.appendChild(b);\n"
+    "})();\n"
+    "</script>\n"
     "</body>\n"
     "</html>\n";
 
@@ -83,6 +142,14 @@ static const char* fallback_index_template =
     "<meta charset=\"UTF-8\">\n"
     "<title>{{site_title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var s = localStorage.getItem('cxo-theme');\n"
+    "  var d = window.matchMedia('(prefers-color-scheme: dark)').matches;\n"
+    "  if (s === 'dark' || (!s && d)) h.setAttribute('data-theme', 'dark');\n"
+    "})();\n"
+    "</script>\n"
     "</head>\n"
     "<body>\n"
     "<nav><a href=\"/\">{{site_title}}</a></nav>\n"
@@ -91,7 +158,28 @@ static const char* fallback_index_template =
     "{{entry_list}}"
     "</ul>\n"
     "{{pagination}}"
-    "{{hotreload}}"
+    "{{hotreload}}\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var b = document.createElement('button');\n"
+    "  b.className = 'theme-toggle';\n"
+    "  b.textContent = h.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';\n"
+    "  b.onclick = function() {\n"
+    "    if (h.getAttribute('data-theme') === 'dark') {\n"
+    "      h.removeAttribute('data-theme');\n"
+    "      localStorage.setItem('cxo-theme', 'light');\n"
+    "      b.textContent = '🌙';\n"
+    "    } else {\n"
+    "      h.setAttribute('data-theme', 'dark');\n"
+    "      localStorage.setItem('cxo-theme', 'dark');\n"
+    "      b.textContent = '☀️';\n"
+    "    }\n"
+    "  };\n"
+    "  var n = document.querySelector('nav');\n"
+    "  if (n) n.appendChild(b);\n"
+    "})();\n"
+    "</script>\n"
     "</body>\n"
     "</html>\n";
 
@@ -104,6 +192,14 @@ static const char* fallback_template =
     "<title>{{title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
     "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css\">\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var s = localStorage.getItem('cxo-theme');\n"
+    "  var d = window.matchMedia('(prefers-color-scheme: dark)').matches;\n"
+    "  if (s === 'dark' || (!s && d)) h.setAttribute('data-theme', 'dark');\n"
+    "})();\n"
+    "</script>\n"
     "</head>\n"
     "<body>\n"
     "<nav><a href=\"/\">{{site_title}}</a> {{nav_lang_switch}}</nav>\n"
@@ -118,7 +214,28 @@ static const char* fallback_template =
     "<footer><p>{{site_description}}</p></footer>\n"
     "<script src=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js\"></script>\n"
     "<script>hljs.highlightAll();</script>\n"
-    "{{hotreload}}"
+    "{{hotreload}}\n"
+    "<script>\n"
+    "(function() {\n"
+    "  var h = document.documentElement;\n"
+    "  var b = document.createElement('button');\n"
+    "  b.className = 'theme-toggle';\n"
+    "  b.textContent = h.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';\n"
+    "  b.onclick = function() {\n"
+    "    if (h.getAttribute('data-theme') === 'dark') {\n"
+    "      h.removeAttribute('data-theme');\n"
+    "      localStorage.setItem('cxo-theme', 'light');\n"
+    "      b.textContent = '🌙';\n"
+    "    } else {\n"
+    "      h.setAttribute('data-theme', 'dark');\n"
+    "      localStorage.setItem('cxo-theme', 'dark');\n"
+    "      b.textContent = '☀️';\n"
+    "    }\n"
+    "  };\n"
+    "  var n = document.querySelector('nav');\n"
+    "  if (n) n.appendChild(b);\n"
+    "})();\n"
+    "</script>\n"
     "</body>\n"
     "</html>\n";
 
@@ -225,7 +342,7 @@ static int copy_dir_recursive(const char* src, const char* dst)
         }
         
         if (S_ISDIR(st.st_mode)) {
-            if (mkdir(dst_path, 0755) != 0 && errno != EEXIST) {
+            if (cxo_mkdir(dst_path) != 0 && errno != EEXIST) {
                 rc = CXO_ERR_IO;
             } else {
                 rc = copy_dir_recursive(src_path, dst_path);
@@ -353,7 +470,7 @@ static int ensure_dir(const char* path)
         }
     }
     
-    if (mkdir(path, 0755) != 0 && errno != EEXIST) {
+    if (cxo_mkdir(path) != 0 && errno != EEXIST) {
         return CXO_ERR_IO;
     }
     return CXO_OK;
@@ -531,7 +648,7 @@ static int copy_theme_assets(const char* theme_path, const char* output_dir)
     snprintf(src, sizeof(src), "%s/style.css", theme_path);
     snprintf(dst, sizeof(dst), "%s/style.css", output_dir);
     
-    if (access(src, F_OK) == 0) {
+    if (cxo_access(src, F_OK) == 0) {
         rc = ensure_dir(output_dir);
         if (CXO_IS_ERR(rc)) {
             return rc;
@@ -954,15 +1071,15 @@ static char* build_pagination(arena_t* arena, const char* lang,
                                prefix[0] ? "/en/" : "/");
         } else {
             offset += snprintf(buf + offset, sizeof(buf) - offset,
-                               "<a href=\"%s/page/%zu/\" class=\"newer\">← Newer Posts</a>\n",
-                               prefix, page - 1);
+                               "<a href=\"%s/page/%lu/\" class=\"newer\">← Newer Posts</a>\n",
+                               prefix, (unsigned long)(page - 1));
         }
     }
     
     if (page < page_count) {
         offset += snprintf(buf + offset, sizeof(buf) - offset,
-                           "<a href=\"%s/page/%zu/\" class=\"older\">Older Posts →</a>\n",
-                           prefix, page + 1);
+                           "<a href=\"%s/page/%lu/\" class=\"older\">Older Posts →</a>\n",
+                           prefix, (unsigned long)(page + 1));
     }
     
     offset += snprintf(buf + offset, sizeof(buf) - offset, "</nav>\n");
@@ -1061,7 +1178,7 @@ static void strip_html(char* dst, const char* src, size_t size)
 }
 
 /* Generate RSS feed */
-static int render_rss(cxo_context_t* ctx, arena_t* arena __attribute__((unused)),
+static int render_rss(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
                       const char* output_dir, const char* lang)
 {
     char path[MAX_OUTPUT_PATH];
@@ -1187,7 +1304,7 @@ static void write_sitemap_entry(FILE* fp, cxo_entry_t* entry,
 }
 
 /* Generate sitemap */
-static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unused)),
+static int render_sitemap(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
                           const char* output_dir)
 {
     char path[MAX_OUTPUT_PATH];
@@ -1227,19 +1344,19 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena __attribute__((unus
         for (p = 2; p <= zh_pages; p++) {
             fprintf(fp,
                     "<url>\n"
-                    "<loc>%s/page/%zu/</loc>\n"
+                    "<loc>%s/page/%lu/</loc>\n"
                     "<priority>0.6</priority>\n"
                     "</url>\n",
-                    base_url, p);
+                    base_url, (unsigned long)p);
         }
         
         for (p = 2; p <= en_pages; p++) {
             fprintf(fp,
                     "<url>\n"
-                    "<loc>%s/en/page/%zu/</loc>\n"
+                    "<loc>%s/en/page/%lu/</loc>\n"
                     "<priority>0.6</priority>\n"
                     "</url>\n",
-                    base_url, p);
+                    base_url, (unsigned long)p);
         }
     }
     
@@ -1728,11 +1845,11 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
         }
     } else {
         if (strcmp(lang, "en") == 0) {
-            snprintf(path, sizeof(path), "%s/en/page/%zu/index.html",
-                     output_dir, page);
+            snprintf(path, sizeof(path), "%s/en/page/%lu/index.html",
+                     output_dir, (unsigned long)page);
         } else {
-            snprintf(path, sizeof(path), "%s/page/%zu/index.html",
-                     output_dir, page);
+            snprintf(path, sizeof(path), "%s/page/%lu/index.html",
+                     output_dir, (unsigned long)page);
         }
     }
     
@@ -1929,7 +2046,7 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
         fprintf(stderr, "Warning: Failed to copy static files\n");
     }
     
-    printf("Rendered %d/%zu entries\n", success, ctx->count);
+    printf("Rendered %d/%lu entries\n", success, (unsigned long)ctx->count);
     
     return (success == (int)ctx->count) ? CXO_OK : CXO_ERR_RENDER;
 }
