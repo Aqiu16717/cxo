@@ -44,6 +44,7 @@ static const char* fallback_archive_template =
     "<html lang=\"{{lang}}\">\n"
     "<head>\n"
     "<meta charset=\"UTF-8\">\n"
+    "{{meta_tags}}\n"
     "<title>{{site_title}} - {{archive_title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
     "<script>\n"
@@ -92,6 +93,7 @@ static const char* fallback_tag_template =
     "<html lang=\"{{lang}}\">\n"
     "<head>\n"
     "<meta charset=\"UTF-8\">\n"
+    "{{meta_tags}}\n"
     "<title>{{site_title}} - {{tag_name}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
     "<script>\n"
@@ -140,6 +142,7 @@ static const char* fallback_index_template =
     "<html lang=\"{{lang}}\">\n"
     "<head>\n"
     "<meta charset=\"UTF-8\">\n"
+    "{{meta_tags}}\n"
     "<title>{{site_title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
     "<script>\n"
@@ -189,6 +192,7 @@ static const char* fallback_template =
     "<html lang=\"{{lang}}\">\n"
     "<head>\n"
     "<meta charset=\"UTF-8\">\n"
+    "{{meta_tags}}\n"
     "<title>{{title}}</title>\n"
     "<link rel=\"stylesheet\" href=\"/style.css\">\n"
     "<link rel=\"stylesheet\" href=\"https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css\">\n"
@@ -671,6 +675,70 @@ static int hotreload_enabled(void)
 /* Forward declarations */
 static char* build_tag_links(cxo_entry_t* entry, arena_t* arena);
 
+/* Build SEO meta tags for a post */
+static char* build_post_meta_tags(cxo_entry_t* entry,
+                                  const cxo_context_t* ctx,
+                                  arena_t* arena)
+{
+    char buf[2048];
+    const char* base;
+    const char* desc;
+    int n;
+    
+    base = ctx->base_url ? ctx->base_url : "";
+    desc = entry->description ? entry->description : "";
+    
+    n = snprintf(buf, sizeof(buf),
+                 "<meta name=\"description\" content=\"%s\">\n"
+                 "<meta property=\"og:title\" content=\"%s\">\n"
+                 "<meta property=\"og:description\" content=\"%s\">\n"
+                 "<meta property=\"og:url\" content=\"%s/%s/posts/%s.html\">\n"
+                 "<meta property=\"og:type\" content=\"article\">\n"
+                 "<meta name=\"twitter:card\" content=\"summary\">\n"
+                 "<meta name=\"twitter:title\" content=\"%s\">\n"
+                 "<meta name=\"twitter:description\" content=\"%s\">\n",
+                 desc, entry->title, desc, base, entry->lang, entry->slug,
+                 entry->title, desc);
+    if (n < 0 || (size_t)n >= sizeof(buf)) {
+        return arena_strdup(arena, "");
+    }
+    return arena_strdup(arena, buf);
+}
+
+/* Build SEO meta tags for site pages (index, tag, archive) */
+static char* build_site_meta_tags(const cxo_context_t* ctx,
+                                  arena_t* arena, const char* lang,
+                                  const char* page_url)
+{
+    char buf[2048];
+    const char* base;
+    const char* title;
+    const char* desc;
+    const char* locale;
+    int n;
+    
+    base = ctx->base_url ? ctx->base_url : "";
+    title = ctx->site_title ? ctx->site_title : "";
+    desc = ctx->site_description ? ctx->site_description : "";
+    locale = (strcmp(lang, "en") == 0) ? "en_US" : "zh_CN";
+    
+    n = snprintf(buf, sizeof(buf),
+                 "<meta name=\"description\" content=\"%s\">\n"
+                 "<meta property=\"og:title\" content=\"%s\">\n"
+                 "<meta property=\"og:description\" content=\"%s\">\n"
+                 "<meta property=\"og:url\" content=\"%s%s\">\n"
+                 "<meta property=\"og:type\" content=\"website\">\n"
+                 "<meta property=\"og:locale\" content=\"%s\">\n"
+                 "<meta name=\"twitter:card\" content=\"summary\">\n"
+                 "<meta name=\"twitter:title\" content=\"%s\">\n"
+                 "<meta name=\"twitter:description\" content=\"%s\">\n",
+                 desc, title, desc, base, page_url, locale, title, desc);
+    if (n < 0 || (size_t)n >= sizeof(buf)) {
+        return arena_strdup(arena, "");
+    }
+    return arena_strdup(arena, buf);
+}
+
 /* Generate HTML */
 static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
                            arena_t* arena, const char* tmpl)
@@ -731,6 +799,11 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
         return NULL;
     }
     html = replace_var(arena, html, "toc", entry->toc ? entry->toc : "");
+    if (!html) {
+        return NULL;
+    }
+    html = replace_var(arena, html, "meta_tags",
+                       build_post_meta_tags(entry, ctx, arena));
     if (!html) {
         return NULL;
     }
@@ -1576,7 +1649,16 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
         return CXO_ERR_IO;
     }
     
-    html = replace_var(arena, tmpl, "lang", lang);
+    {
+        char page_url[128];
+        snprintf(page_url, sizeof(page_url), "/%s/%s.html", subdir, tag);
+        html = replace_var(arena, tmpl, "meta_tags",
+                           build_site_meta_tags(ctx, arena, lang, page_url));
+    }
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "lang", lang);
     if (!html) {
         html = "";
     }
@@ -1705,7 +1787,20 @@ static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
         }
     }
     
-    html = replace_var(arena, tmpl, "lang", lang);
+    {
+        char page_url[128];
+        if (month) {
+            snprintf(page_url, sizeof(page_url), "/%s%s/%s/", prefix, year, month);
+        } else {
+            snprintf(page_url, sizeof(page_url), "/%s%s/", prefix, year);
+        }
+        html = replace_var(arena, tmpl, "meta_tags",
+                           build_site_meta_tags(ctx, arena, lang, page_url));
+    }
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "lang", lang);
     if (!html) {
         html = "";
     }
@@ -1881,7 +1976,30 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
         pagination = "";
     }
     
-    html = replace_var(arena, tmpl, "lang", lang);
+    {
+        char page_url[128];
+        if (page == 1) {
+            if (strcmp(lang, "en") == 0) {
+                snprintf(page_url, sizeof(page_url), "/en/");
+            } else {
+                snprintf(page_url, sizeof(page_url), "/");
+            }
+        } else {
+            if (strcmp(lang, "en") == 0) {
+                snprintf(page_url, sizeof(page_url), "/en/page/%lu/",
+                         (unsigned long)page);
+            } else {
+                snprintf(page_url, sizeof(page_url), "/page/%lu/",
+                         (unsigned long)page);
+            }
+        }
+        html = replace_var(arena, tmpl, "meta_tags",
+                           build_site_meta_tags(ctx, arena, lang, page_url));
+    }
+    if (!html) {
+        html = "";
+    }
+    html = replace_var(arena, html, "lang", lang);
     if (!html) {
         html = "";
     }

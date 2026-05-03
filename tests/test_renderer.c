@@ -238,6 +238,20 @@ int main(void)
             return 1;
         }
         printf("  Found next nav in hello.html\n");
+        
+        if (strstr(buf, "property=\"og:title\"") == NULL) {
+            printf("FAIL: missing og:title meta tag\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found og:title meta tag\n");
+        
+        if (strstr(buf, "property=\"og:type\"") == NULL) {
+            printf("FAIL: missing og:type meta tag\n");
+            arena_destroy(arena);
+            return 1;
+        }
+        printf("  Found og:type meta tag\n");
     }
     
     /* Verify static files copied */

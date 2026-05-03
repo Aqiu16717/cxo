@@ -418,8 +418,8 @@ static void handle_request(int client, const char* root, int* sse_client)
 {
     char buf[BUFFER_SIZE];
     char method[16];
-    char uri[MAX_PATH];
-    char decoded_uri[MAX_PATH];
+    char uri[CXO_MAX_PATH];
+    char decoded_uri[CXO_MAX_PATH];
     cxo_ssize_t n;
     int is_head;
     
@@ -577,8 +577,8 @@ static void add_watch_path(const char* path)
         return;
     }
     
-    strncpy(watch_paths[watch_count].path, path, MAX_PATH - 1);
-    watch_paths[watch_count].path[MAX_PATH - 1] = '\0';
+    strncpy(watch_paths[watch_count].path, path, CXO_MAX_PATH - 1);
+    watch_paths[watch_count].path[CXO_MAX_PATH - 1] = '\0';
     watch_paths[watch_count].mtime = st.st_mtime;
     watch_count++;
 }

@@ -212,6 +212,7 @@ cxo help              # Show usage (alias: cxo -h)
 - **Table of Contents**: Automatically generated from HTML headings (h1–h6). Heading anchors are slugified; duplicates get numeric suffixes (`foo-2`, `foo-3`).
 - **Template fallback**: If theme files are missing, hardcoded fallback templates in `renderer.c` are used.
 - **Static assets**: `static/` directory is recursively copied to `public/` on every build.
+- **SEO meta tags**: Open Graph and Twitter Card tags auto-generated per page via `{{meta_tags}}`.
 - **Cross-platform**: Builds on Linux, macOS, and Windows (MinGW-w64/MSYS2) via `include/platform.h` abstraction layer
 - **Dark mode toggle**: Theme-aware CSS with `localStorage` persistence and `prefers-color-scheme` respect; toggle button injected in all default templates and fallback templates.
 - **RSS**: RFC-822 dates, XML-escaped titles, CDATA descriptions.
@@ -254,6 +255,7 @@ Template files live in `themes/default/`:
 **Common to all templates:**
 - `{{site_title}}`, `{{site_description}}`, `{{lang}}`
 - `{{hotreload}}` — injected in dev mode
+- `{{meta_tags}}` — Open Graph + Twitter Card + description meta tags
 
 **`post.html`:**
 - `{{title}}`, `{{date}}`, `{{content}}`, `{{description}}`, `{{tags}}`
