@@ -279,23 +279,43 @@ static int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
     return CXO_OK;
 }
 
+/* Set fallback values for fields the renderer relies on */
+static void set_entry_defaults(cxo_entry_t* entry, arena_t* arena)
+{
+    if (!entry->title) {
+        entry->title = arena_strdup(arena, "Untitled");
+    }
+    if (!entry->date) {
+        entry->date = arena_strdup(arena, "1970-01-01");
+    }
+    if (!entry->html_content) {
+        entry->html_content = arena_strdup(arena, "");
+    }
+    if (!entry->toc) {
+        entry->toc = arena_strdup(arena, "");
+    }
+}
+
 int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
                        const char* filepath)
 {
     char* file_content;
     char* body_start;
     char* html;
-    
+
     /* Read file if filepath provided, else use stored md_content as path */
     if (filepath) {
         file_content = read_file(arena, filepath);
     } else {
         file_content = read_file(arena, entry->md_content);
     }
-    
+
     if (!file_content) {
-        fprintf(stderr, "Error: Cannot read file %s\n", 
+        fprintf(stderr, "Error: Cannot read file %s\n",
                 filepath ? filepath : entry->md_content);
+        /* Keep the entry renderable so downstream stages survive
+         * a failed parse; the error is reported by the caller. */
+        set_entry_defaults(entry, arena);
         return CXO_ERR_NOFILE;
     }
     
@@ -310,12 +330,7 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     }
     
     /* Set defaults */
-    if (!entry->title) {
-        entry->title = arena_strdup(arena, "Untitled");
-    }
-    if (!entry->date) {
-        entry->date = arena_strdup(arena, "1970-01-01");
-    }
+    set_entry_defaults(entry, arena);
     if (!entry->id) {
         entry->id = entry->slug;
     }
@@ -324,6 +339,7 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     html = cmark_markdown_to_html(body_start, strlen(body_start), 0);
     if (!html) {
         fprintf(stderr, "Error: Failed to parse markdown\n");
+        set_entry_defaults(entry, arena);
         return CXO_ERR_PARSE;
     }
     
@@ -354,12 +370,17 @@ static void slugify(char* dst, const char* src, size_t dst_size)
 {
     size_t i, j;
     int last_was_dash = 1;
-    
+
     j = 0;
     for (i = 0; src[i] && j < dst_size - 1; i++) {
         unsigned char c = (unsigned char)src[i];
         if (isalnum(c)) {
             dst[j++] = (char)tolower(c);
+            last_was_dash = 0;
+        } else if (c >= 0x80) {
+            /* Preserve UTF-8 bytes so non-ASCII (e.g. Chinese)
+             * headings get usable anchor ids */
+            dst[j++] = (char)c;
             last_was_dash = 0;
         } else if (!last_was_dash && j > 0) {
             dst[j++] = '-';
@@ -436,6 +457,11 @@ void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
             }
             slugify(headings[hcount].id, headings[hcount].text,
                     text_len * 2 + 32);
+            if (headings[hcount].id[0] == '\0') {
+                /* Heading with no slugifiable chars (e.g. punctuation only) */
+                snprintf(headings[hcount].id, text_len * 2 + 32,
+                         "heading-%lu", (unsigned long)(hcount + 1));
+            }
             
             extra_len += strlen(headings[hcount].id) + 16;
             hcount++;
