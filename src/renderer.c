@@ -675,34 +675,116 @@ static int hotreload_enabled(void)
 /* Forward declarations */
 static char* build_tag_links(cxo_entry_t* entry, arena_t* arena);
 
+/* Escape a string for use in a double-quoted HTML attribute */
+static char* escape_attr(arena_t* arena, const char* src)
+{
+    size_t len;
+    size_t i;
+    size_t j;
+    char* dst;
+
+    if (!src) {
+        return arena_strdup(arena, "");
+    }
+
+    len = strlen(src);
+    dst = arena_alloc(arena, len * 6 + 1);
+    if (!dst) {
+        return NULL;
+    }
+
+    j = 0;
+    for (i = 0; i < len; i++) {
+        switch (src[i]) {
+        case '<':
+            memcpy(dst + j, "&lt;", 4);
+            j += 4;
+            break;
+        case '>':
+            memcpy(dst + j, "&gt;", 4);
+            j += 4;
+            break;
+        case '&':
+            memcpy(dst + j, "&amp;", 5);
+            j += 5;
+            break;
+        case '"':
+            memcpy(dst + j, "&quot;", 6);
+            j += 6;
+            break;
+        default:
+            dst[j++] = src[i];
+        }
+    }
+    dst[j] = '\0';
+    return dst;
+}
+
+/* Build SEO meta tags (shared core for post and site pages) */
+static char* build_meta_tags(arena_t* arena, const char* title,
+                             const char* desc, const char* url,
+                             const char* og_type, const char* locale)
+{
+    char locale_line[80];
+    char* etitle;
+    char* edesc;
+    char* buf;
+    size_t size;
+    int n;
+
+    etitle = escape_attr(arena, title);
+    edesc = escape_attr(arena, desc);
+    if (!etitle || !edesc) {
+        return arena_strdup(arena, "");
+    }
+
+    if (locale) {
+        snprintf(locale_line, sizeof(locale_line),
+                 "<meta property=\"og:locale\" content=\"%s\">\n", locale);
+    } else {
+        locale_line[0] = '\0';
+    }
+
+    /* title appears 2x, desc 3x; sized so snprintf can never truncate */
+    size = strlen(etitle) * 2 + strlen(edesc) * 3 + strlen(url) + 512;
+    buf = arena_alloc(arena, size);
+    if (!buf) {
+        return arena_strdup(arena, "");
+    }
+
+    n = snprintf(buf, size,
+                 "<meta name=\"description\" content=\"%s\">\n"
+                 "<meta property=\"og:title\" content=\"%s\">\n"
+                 "<meta property=\"og:description\" content=\"%s\">\n"
+                 "<meta property=\"og:url\" content=\"%s\">\n"
+                 "<meta property=\"og:type\" content=\"%s\">\n"
+                 "%s"
+                 "<meta name=\"twitter:card\" content=\"summary\">\n"
+                 "<meta name=\"twitter:title\" content=\"%s\">\n"
+                 "<meta name=\"twitter:description\" content=\"%s\">\n",
+                 edesc, etitle, edesc, url, og_type, locale_line,
+                 etitle, edesc);
+    if (n < 0 || (size_t)n >= size) {
+        return arena_strdup(arena, "");
+    }
+    return buf;
+}
+
 /* Build SEO meta tags for a post */
 static char* build_post_meta_tags(cxo_entry_t* entry,
                                   const cxo_context_t* ctx,
                                   arena_t* arena)
 {
-    char buf[2048];
+    char url[1024];
     const char* base;
-    const char* desc;
-    int n;
-    
+
     base = ctx->base_url ? ctx->base_url : "";
-    desc = entry->description ? entry->description : "";
-    
-    n = snprintf(buf, sizeof(buf),
-                 "<meta name=\"description\" content=\"%s\">\n"
-                 "<meta property=\"og:title\" content=\"%s\">\n"
-                 "<meta property=\"og:description\" content=\"%s\">\n"
-                 "<meta property=\"og:url\" content=\"%s/%s/posts/%s.html\">\n"
-                 "<meta property=\"og:type\" content=\"article\">\n"
-                 "<meta name=\"twitter:card\" content=\"summary\">\n"
-                 "<meta name=\"twitter:title\" content=\"%s\">\n"
-                 "<meta name=\"twitter:description\" content=\"%s\">\n",
-                 desc, entry->title, desc, base, entry->lang, entry->slug,
-                 entry->title, desc);
-    if (n < 0 || (size_t)n >= sizeof(buf)) {
-        return arena_strdup(arena, "");
-    }
-    return arena_strdup(arena, buf);
+    snprintf(url, sizeof(url), "%s/%s/%s.html",
+             base, get_output_subdir(entry->lang), entry->slug);
+
+    return build_meta_tags(arena, entry->title,
+                           entry->description ? entry->description : "",
+                           url, "article", NULL);
 }
 
 /* Build SEO meta tags for site pages (index, tag, archive) */
@@ -710,33 +792,19 @@ static char* build_site_meta_tags(const cxo_context_t* ctx,
                                   arena_t* arena, const char* lang,
                                   const char* page_url)
 {
-    char buf[2048];
+    char url[1024];
     const char* base;
     const char* title;
     const char* desc;
     const char* locale;
-    int n;
-    
+
     base = ctx->base_url ? ctx->base_url : "";
     title = ctx->site_title ? ctx->site_title : "";
     desc = ctx->site_description ? ctx->site_description : "";
     locale = (strcmp(lang, "en") == 0) ? "en_US" : "zh_CN";
-    
-    n = snprintf(buf, sizeof(buf),
-                 "<meta name=\"description\" content=\"%s\">\n"
-                 "<meta property=\"og:title\" content=\"%s\">\n"
-                 "<meta property=\"og:description\" content=\"%s\">\n"
-                 "<meta property=\"og:url\" content=\"%s%s\">\n"
-                 "<meta property=\"og:type\" content=\"website\">\n"
-                 "<meta property=\"og:locale\" content=\"%s\">\n"
-                 "<meta name=\"twitter:card\" content=\"summary\">\n"
-                 "<meta name=\"twitter:title\" content=\"%s\">\n"
-                 "<meta name=\"twitter:description\" content=\"%s\">\n",
-                 desc, title, desc, base, page_url, locale, title, desc);
-    if (n < 0 || (size_t)n >= sizeof(buf)) {
-        return arena_strdup(arena, "");
-    }
-    return arena_strdup(arena, buf);
+
+    snprintf(url, sizeof(url), "%s%s", base, page_url);
+    return build_meta_tags(arena, title, desc, url, "website", locale);
 }
 
 /* Generate HTML */
@@ -1650,8 +1718,12 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     }
     
     {
-        char page_url[128];
-        snprintf(page_url, sizeof(page_url), "/%s/%s.html", subdir, tag);
+        size_t url_size = strlen(subdir) + strlen(tag) + 8;
+        char* page_url = arena_alloc(arena, url_size);
+        if (!page_url) {
+            return CXO_ERR_NOMEM;
+        }
+        snprintf(page_url, url_size, "/%s/%s.html", subdir, tag);
         html = replace_var(arena, tmpl, "meta_tags",
                            build_site_meta_tags(ctx, arena, lang, page_url));
     }

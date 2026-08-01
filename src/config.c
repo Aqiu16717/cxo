@@ -37,6 +37,20 @@ static long toml_int_or(const toml_table_t* tab, const char* key, long def)
     return d.u.i;
 }
 
+/* Strip trailing slashes so URL joins stay clean */
+static void strip_trailing_slash(char* url)
+{
+    size_t len;
+
+    if (!url) {
+        return;
+    }
+    len = strlen(url);
+    while (len > 1 && url[len - 1] == '/') {
+        url[--len] = '\0';
+    }
+}
+
 /* Load config from TOML file */
 int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
                     const char* config_path)
@@ -87,7 +101,8 @@ int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
     if (site) {
         ctx->theme_path = toml_string_or(site, "path", arena, ctx->theme_path);
     }
-    
+
+    strip_trailing_slash(ctx->base_url);
     toml_free(conf);
     return CXO_OK;
 }
