@@ -62,3 +62,9 @@ test_*
 public/
 ROADMAP.md
 cxo
+
+# Planning files (planning-with-files skill)
+task_plan.md
+findings.md
+progress.md
+.planning/
