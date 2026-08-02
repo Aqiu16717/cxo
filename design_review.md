@@ -18,8 +18,10 @@ P0 与 P1 项已全部完成。修复条目如下：
 | §1.4 解析失败段错误 | ✅ 已修复 | 新增 `set_entry_defaults()`，在文件不可读与 cmark 解析失败两条路径上统一设置安全默认值（空 `html_content`/`toc`、`Untitled`、`1970-01-01`）。验证：同一不可读文章从 SIGSEGV 变为正常渲染 + rc=1 报错（commit `8e5a7f0`） |
 | §2.1 renderer.c 巨型模块 | ✅ 已修复 | 2352 → 112 行（仅留 `cxo_render_site` 编排）；新模块 template/render_posts/render_index/render_taxonomy/render_feeds/path_util + 内部头 `renderer_internal.h`；纯搬迁无逻辑改动，产物字节级一致（commit `b096ac2`） |
 | §2.2 语言二分法硬编码 | ✅ 已修复 | `cxo_lang_t` 语言描述表（code/prefix/locale/label）落地 `src/lang.c`，~20 处硬编码判断全部迁移；og:locale 硬编码问题随之解决（commit `2e656bd`） |
-| §3.4 meta 标签截断 | ✅ 已修复 | meta 缓冲区改为按转义后长度在 arena 分配，截断类已消除（commit `5a6e6a2`）；TOC/watch list 的静默截断仍在 |
-| §5 中文 TOC slug | ✅ 已修复 | `slugify()` 保留 ≥0x80 的 UTF-8 字节，中文标题得到可用锚点（如 `安装指南`）；空 slug 回退 `heading-N`（commit `8e5a7f0`）。cmark AST 重写与内联标签噪声问题仍未做 |
+| §3.4 meta 标签截断 | ✅ 已修复 | meta 缓冲区改为按转义后长度在 arena 分配，截断类已消除（commit `5a6e6a2`）；TOC 标题数上限超限时已告警（`790491f`）；watch list 超限已告警（`b1d8e89`） |
+| §4 模板 13 次全串替换 | ✅ 已修复 | `replace_vars()` 变量表 + 单遍扫描；未知变量保留字面量并告警（拼写检测）；插入值不再被二次扫描（commit `4752a98`） |
+| §5 TOC 生成 | ✅ 已修复 | 中文 slug（`8e5a7f0`）+ cmark AST 重写（`790491f`）：标题文本取自 AST 字面量（code/bold 不再泄漏标签），id 注入改为位置对应，strstr 闭合标签搜索已移除 |
+| §6 开发服务器 | ✅ 已修复 | 进程内重建（`cmd_build()`，fork/PATH 依赖消除）、SSE 多客户端（8 个并发标签页）、watch list 256 + 超限告警；另修复 post.html/index.html 缺失 `{{hotreload}}` 占位符（commit `b1d8e89`） |
 | 附带修复 | ✅ | `base_url` 末尾斜杠归一化（`config.c`）、tag 页 og:url 动态分配、`tag.html`/`archive.html` 补 `{{meta_tags}}`、post/site meta 构造函数合并（commit `5a6e6a2`） |
 
 ---
@@ -383,9 +385,9 @@ id 注入可通过 cmark 的自定义渲染或在 AST 阶段完成。
 | ~~P1~~ | ~~构建错误计数，失败即非零退出（1.3）~~ | ✅ 已修复（commit `8e5a7f0`），随 §1.4 修复完整生效 | — |
 | ~~P1~~ | ~~renderer.c 拆分（2.1）~~ | ✅ 已完成（commit `b096ac2`，2352 → 112 行 + 6 模块） | — |
 | ~~P1~~ | ~~语言描述表（2.2）~~ | ✅ 已完成（commit `2e656bd`，cxo_lang_t 落地） | — |
-| ~~P2~~ | TOC 中文 slug（5） | ✅ 已修复（UTF-8 保留 + heading-N 回退）；cmark AST 重写仍为 P2 | 中文 TOC 锚点已可用 |
-| P2 | 变量表单遍模板替换（4） | 小 | 性能 + 拼写校验 |
-| P2 | serve 进程内重建 + 多 SSE 客户端（6） | 中 | 开发体验 |
+| ~~P2~~ | ~~TOC 中文 slug（5）~~ | ✅ 已修复（`8e5a7f0` + AST 重写 `790491f`） | — |
+| ~~P2~~ | ~~变量表单遍模板替换（4）~~ | ✅ 已修复（`4752a98`，含未知变量告警） | — |
+| ~~P2~~ | ~~serve 进程内重建 + 多 SSE 客户端（6）~~ | ✅ 已修复（`b1d8e89`，另修 {{hotreload}} 缺失） | — |
 | P3 | 命令表驱动 CLI（2.4） | 小 | 扩展性 |
 | P3 | date 结构化（3.3）、fixtures 测试（7） | 中 | 长期质量 |
 
