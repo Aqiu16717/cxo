@@ -19,20 +19,14 @@ extern int cmd_clean(void);
 extern int cmd_serve(int port, int rebuild);
 extern int cmd_deploy(void);
 
-static void print_usage(const char* prog)
-{
-    fprintf(stderr, "Usage: %s <command> [options]\n", prog);
-    fprintf(stderr, "\nCommands:\n");
-    fprintf(stderr, "  init [dir]     Initialize a new CXO project\n");
-    fprintf(stderr, "  new <title>    Create a new blog post\n");
-    fprintf(stderr, "  build          Build the static site\n");
-    fprintf(stderr, "  serve [options] [port]  Start development server (default: 8080)\n");
-    fprintf(stderr, "                  -w, --watch   Enable hot reload\n");
-    fprintf(stderr, "  deploy         Deploy to GitHub Pages\n");
-    fprintf(stderr, "  clean          Clean build output\n");
-    fprintf(stderr, "  version        Show version information\n");
-    fprintf(stderr, "  help           Show this help message\n");
-}
+/* Command table entry */
+typedef struct {
+    const char* name;
+    const char* alias;      /* short form, NULL if none */
+    const char* args;       /* argument synopsis for help, NULL if none */
+    const char* desc;
+    int (*run)(int argc, char** argv);
+} cxo_cmd_t;
 
 static void print_version(void)
 {
@@ -41,79 +35,170 @@ static void print_version(void)
     printf("MIT License\n");
 }
 
+static int run_init(int argc, char** argv)
+{
+    return cmd_init(argc >= 1 ? argv[0] : ".");
+}
+
+static int run_new(int argc, char** argv)
+{
+    if (argc < 1) {
+        fprintf(stderr, "Error: Missing title\n");
+        return 1;
+    }
+    return cmd_new(argv[0]);
+}
+
+static int run_build(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    return cmd_build();
+}
+
+static int run_serve(int argc, char** argv)
+{
+    int port = 8080;
+    int watch = 0;
+    int i = 0;
+
+    /* Parse options */
+    while (i < argc) {
+        if (strcmp(argv[i], "-w") == 0 || strcmp(argv[i], "--watch") == 0) {
+            watch = 1;
+            i++;
+        } else if (argv[i][0] == '-') {
+            fprintf(stderr, "Error: Unknown option: %s\n", argv[i]);
+            return 1;
+        } else {
+            break;
+        }
+    }
+
+    /* Parse port */
+    if (i < argc) {
+        port = atoi(argv[i]);
+        if (port <= 0 || port > 65535) {
+            fprintf(stderr, "Error: Invalid port number\n");
+            return 1;
+        }
+    }
+
+    return cmd_serve(port, watch);
+}
+
+static int run_clean(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    return cmd_clean();
+}
+
+static int run_deploy(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    return cmd_deploy();
+}
+
+static int run_version(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    print_version();
+    return 0;
+}
+
+static void print_commands(void);
+
+static int run_help(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
+    print_commands();
+    return 0;
+}
+
+/* Command table - add a new command by registering one row */
+static const cxo_cmd_t COMMANDS[] = {
+    { "init",    NULL, "[dir]",   "Initialize a new CXO project", run_init },
+    { "new",     NULL, "<title>", "Create a new blog post", run_new },
+    { "build",   "g",  NULL,      "Build the static site", run_build },
+    { "serve",   "s",  "[-w|--watch] [port]",
+      "Start dev server (default port 8080)", run_serve },
+    { "deploy",  NULL, NULL,      "Deploy to GitHub Pages", run_deploy },
+    { "clean",   NULL, NULL,      "Clean build output", run_clean },
+    { "version", "v",  NULL,      "Show version information", run_version },
+    { "help",    "h",  NULL,      "Show this help message", run_help },
+};
+
+#define COMMAND_COUNT (sizeof(COMMANDS) / sizeof(COMMANDS[0]))
+
+static void print_commands(void)
+{
+    size_t i;
+
+    fprintf(stderr, "\nCommands:\n");
+    for (i = 0; i < COMMAND_COUNT; i++) {
+        char display[48];
+
+        snprintf(display, sizeof(display), "%s%s%s",
+                 COMMANDS[i].name,
+                 COMMANDS[i].args ? " " : "",
+                 COMMANDS[i].args ? COMMANDS[i].args : "");
+        fprintf(stderr, "  %-28s %s\n", display, COMMANDS[i].desc);
+    }
+}
+
+static void print_usage(const char* prog)
+{
+    fprintf(stderr, "Usage: %s <command> [options]\n", prog);
+    print_commands();
+}
+
+/* Match arg against name, alias, and their dashed forms (-v, --version) */
+static int cmd_matches(const cxo_cmd_t* cmd, const char* arg)
+{
+    char dashed[32];
+
+    if (strcmp(arg, cmd->name) == 0) {
+        return 1;
+    }
+    snprintf(dashed, sizeof(dashed), "--%s", cmd->name);
+    if (strcmp(arg, dashed) == 0) {
+        return 1;
+    }
+    if (cmd->alias) {
+        if (strcmp(arg, cmd->alias) == 0) {
+            return 1;
+        }
+        snprintf(dashed, sizeof(dashed), "-%s", cmd->alias);
+        if (strcmp(arg, dashed) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char* argv[])
 {
     const char* cmd;
-    
+    size_t i;
+
     if (argc < 2) {
         print_usage(argv[0]);
         return 1;
     }
-    
+
     cmd = argv[1];
-    
-    if (strcmp(cmd, "init") == 0) {
-        /* cxo init [dir] */
-        const char* dir = (argc >= 3) ? argv[2] : ".";
-        int rc = cmd_init(dir);
-        return CXO_IS_ERR(rc) ? 1 : 0;
-    } else if (strcmp(cmd, "new") == 0) {
-        /* cxo new <title> */
-        if (argc < 3) {
-            fprintf(stderr, "Error: Missing title\n");
-            return 1;
+    for (i = 0; i < COMMAND_COUNT; i++) {
+        if (cmd_matches(&COMMANDS[i], cmd)) {
+            int rc = COMMANDS[i].run(argc - 2, argv + 2);
+            return CXO_IS_ERR(rc) ? 1 : rc;
         }
-        int rc = cmd_new(argv[2]);
-        return CXO_IS_ERR(rc) ? 1 : 0;
-    } else if (strcmp(cmd, "serve") == 0) {
-        int port = 8080;
-        int watch = 0;
-        int arg_idx = 2;
-        
-        /* Parse options */
-        while (arg_idx < argc) {
-            if (strcmp(argv[arg_idx], "-w") == 0 ||
-                strcmp(argv[arg_idx], "--watch") == 0) {
-                watch = 1;
-                arg_idx++;
-            } else if (argv[arg_idx][0] == '-') {
-                fprintf(stderr, "Error: Unknown option: %s\n", argv[arg_idx]);
-                return 1;
-            } else {
-                /* Port number */
-                break;
-            }
-        }
-        
-        /* Parse port */
-        if (arg_idx < argc) {
-            port = atoi(argv[arg_idx]);
-            if (port <= 0 || port > 65535) {
-                fprintf(stderr, "Error: Invalid port number\n");
-                return 1;
-            }
-        }
-        
-        int rc = cmd_serve(port, watch);
-        return CXO_IS_ERR(rc) ? 1 : 0;
-    } else if (strcmp(cmd, "deploy") == 0) {
-        int rc = cmd_deploy();
-        return CXO_IS_ERR(rc) ? 1 : 0;
-    } else if (strcmp(cmd, "clean") == 0) {
-        int rc = cmd_clean();
-        return CXO_IS_ERR(rc) ? 1 : 0;
-    } else if (strcmp(cmd, "build") == 0 || strcmp(cmd, "g") == 0) {
-        int rc = cmd_build();
-        return CXO_IS_ERR(rc) ? 1 : 0;
-    } else if (strcmp(cmd, "version") == 0 || strcmp(cmd, "-v") == 0) {
-        print_version();
-        return 0;
-    } else if (strcmp(cmd, "help") == 0 || strcmp(cmd, "-h") == 0) {
-        print_usage(argv[0]);
-        return 0;
-    } else {
-        fprintf(stderr, "Unknown command: %s\n", cmd);
-        print_usage(argv[0]);
-        return 1;
     }
+
+    fprintf(stderr, "Unknown command: %s\n", cmd);
+    print_usage(argv[0]);
+    return 1;
 }
