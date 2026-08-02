@@ -22,8 +22,10 @@ extern int cmd_deploy(void);
 /* Command table entry */
 typedef struct {
     const char* name;
-    const char* alias;      /* short form, NULL if none */
-    const char* args;       /* argument synopsis for help, NULL if none */
+    /* short form, NULL if none */
+    const char* alias;
+    /* argument synopsis for help, NULL if none */
+    const char* args;
     const char* desc;
     int (*run)(int argc, char** argv);
 } cxo_cmd_t;
@@ -110,12 +112,15 @@ static int run_version(int argc, char** argv)
 }
 
 static void print_commands(void);
+static void print_usage(const char* prog);
+
+static const char* g_prog = "cxo";
 
 static int run_help(int argc, char** argv)
 {
     (void)argc;
     (void)argv;
-    print_commands();
+    print_usage(g_prog);
     return 0;
 }
 
@@ -191,6 +196,7 @@ int main(int argc, char* argv[])
     }
 
     cmd = argv[1];
+    g_prog = argv[0];
     for (i = 0; i < COMMAND_COUNT; i++) {
         if (cmd_matches(&COMMANDS[i], cmd)) {
             int rc = COMMANDS[i].run(argc - 2, argv + 2);

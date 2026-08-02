@@ -280,27 +280,61 @@ static int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
     return CXO_OK;
 }
 
+/* Days in a month, with leap-year handling for February */
+static int days_in_month(int year, int month)
+{
+    static const int days[] = { 31, 28, 31, 30, 31, 30,
+                                31, 31, 30, 31, 30, 31 };
+
+    if (month == 2 && ((year % 4 == 0 && year % 100 != 0) ||
+                       year % 400 == 0)) {
+        return 29;
+    }
+    return days[month - 1];
+}
+
 /* Normalize date to zero-padded YYYY-MM-DD so strcmp-based sorting and
  * archive grouping stay correct (e.g. "2026-3-1" -> "2026-03-01").
- * Invalid dates warn and fall back to the default. */
+ * Accepts YYYY and YYYY-MM (day/month default to 1). A full date with
+ * trailing characters (e.g. ISO-8601 time) keeps its date part with a
+ * warning. Anything else warns and falls back to the default. */
 static void normalize_date(cxo_entry_t* entry, arena_t* arena)
 {
-    int year;
-    int month;
-    int day;
+    int year = 1;
+    int month = 1;
+    int day = 1;
+    int fields;
+    int n = 0;
+    const char* rest;
     char normalized[16];
 
     if (!entry->date) {
         return;
     }
 
-    if (sscanf(entry->date, "%d-%d-%d", &year, &month, &day) != 3 ||
-        year < 1970 || year > 9999 ||
-        month < 1 || month > 12 || day < 1 || day > 31) {
+    fields = sscanf(entry->date, "%d-%d-%d%n", &year, &month, &day, &n);
+    if (fields == 2) {
+        /* %n above only runs on a full match; rescan shorter forms */
+        sscanf(entry->date, "%d-%d%n", &year, &month, &n);
+    } else if (fields == 1) {
+        sscanf(entry->date, "%d%n", &year, &n);
+    }
+    rest = entry->date + n;
+
+    if (fields < 1 || year < 1000 || year > 9999 ||
+        (fields >= 2 && (month < 1 || month > 12)) ||
+        (fields >= 3 && (day < 1 || day > days_in_month(year, month))) ||
+        (fields < 3 && *rest != '\0')) {
         fprintf(stderr, "Warning: Invalid date '%s' in entry %s, "
                 "using 1970-01-01\n", entry->date, entry->id);
         entry->date = arena_strdup(arena, "1970-01-01");
         return;
+    }
+
+    if (*rest != '\0') {
+        fprintf(stderr, "Warning: Date '%s' in entry %s has trailing "
+                "characters, using date part only\n",
+                entry->date, entry->id);
     }
 
     snprintf(normalized, sizeof(normalized), "%04d-%02d-%02d",
