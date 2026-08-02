@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="{{lang}}">
+<head>
+<meta charset="UTF-8">
+{{meta_tags}}
+<title>{{site_title}} - {{archive_title}}</title>
+<link rel="stylesheet" href="/style.css">
+<script>
+(function() {
+  var h = document.documentElement;
+  var s = localStorage.getItem('cxo-theme');
+  var d = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  if (s === 'dark' || (!s && d)) h.setAttribute('data-theme', 'dark');
+})();
+</script>
+</head>
+<body>
+<nav><a href="/">{{site_title}}</a></nav>
+<h1>{{archive_title}}</h1>
+<ul class="post-list">
+{{entry_list}}
+</ul>
+{{hotreload}}
+<script>
+(function() {
+  var h = document.documentElement;
+  var b = document.createElement('button');
+  b.className = 'theme-toggle';
+  b.textContent = h.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
+  b.onclick = function() {
+    if (h.getAttribute('data-theme') === 'dark') {
+      h.removeAttribute('data-theme');
+      localStorage.setItem('cxo-theme', 'light');
+      b.textContent = '🌙';
+    } else {
+      h.setAttribute('data-theme', 'dark');
+      localStorage.setItem('cxo-theme', 'dark');
+      b.textContent = '☀️';
+    }
+  };
+  var n = document.querySelector('nav');
+  if (n) n.appendChild(b);
+})();
+</script>
+</body>
+</html>

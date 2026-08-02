@@ -1,0 +1,8 @@
+[site]
+title = "Fixture Blog"
+description = "Independent test site"
+base_url = "https://fixture.example"
+posts_per_page = 10
+
+[theme]
+path = "themes/default"

@@ -57,7 +57,7 @@ TARGET = cxo
 TEST_DIR = tests
 TEST_TARGETS = $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser \
                $(TEST_DIR)/test_linker $(TEST_DIR)/test_config \
-               $(TEST_DIR)/test_renderer
+               $(TEST_DIR)/test_renderer $(TEST_DIR)/test_fixture
 
 # cmark objects for tests
 CMARK_OBJS = $(filter-out src/cmark/main.o, $(CMARK_SRCS:.c=.o))
@@ -99,6 +99,14 @@ $(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/path_u
                            src/arena.c src/lang.c $(CMARK_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
+$(TEST_DIR)/test_fixture: $(TEST_DIR)/test_fixture.c src/cmd_build.c src/config.c \
+                          src/toml.c src/renderer.c src/path_util.c \
+                          src/template.c src/render_posts.c src/render_index.c \
+                          src/render_taxonomy.c src/render_feeds.c \
+                          src/linker.c src/parser.c src/scanner.c src/context.c \
+                          src/arena.c src/lang.c $(CMARK_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+
 # Run all tests (stop on first failure)
 test: $(TEST_TARGETS)
 	@echo "Running tests..."
@@ -107,12 +115,13 @@ test: $(TEST_TARGETS)
 	@./$(TEST_DIR)/test_linker && echo "linker: PASS" || (echo "linker: FAIL" && exit 1)
 	@./$(TEST_DIR)/test_config && echo "config: PASS" || (echo "config: FAIL" && exit 1)
 	@./$(TEST_DIR)/test_renderer && echo "renderer: PASS" || (echo "renderer: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_fixture && echo "fixture: PASS" || (echo "fixture: FAIL" && exit 1)
 
 # Clean build artifacts (only build files, preserve public/)
 clean:
 	-$(RM) $(OBJS) $(DEPS) $(TARGET)
 	-$(RM) $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser $(TEST_DIR)/test_linker
-	-$(RM) $(TEST_DIR)/test_config $(TEST_DIR)/test_renderer
+	-$(RM) $(TEST_DIR)/test_config $(TEST_DIR)/test_renderer $(TEST_DIR)/test_fixture
 	-$(RM) src/cmark/*.o src/cmark/*.d
 
 # Deep clean including generated site
