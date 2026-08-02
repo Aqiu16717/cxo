@@ -36,7 +36,7 @@ endif
 
 # Source files
 CXO_SRCS = src/main.c src/cmd_init.c src/cmd_serve.c src/cmd_deploy.c src/config.c src/renderer.c \
-           src/linker.c src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c
+           src/linker.c src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c src/lang.c
 
 # cmark sources (embedded, exclude main.c)
 CMARK_SRCS = $(filter-out src/cmark/main.c, $(wildcard src/cmark/*.c))
@@ -75,15 +75,15 @@ $(TARGET): $(OBJS)
 -include $(DEPS)
 
 # Test binaries
-$(TEST_DIR)/test_scanner: $(TEST_DIR)/test_scanner.c src/scanner.c src/context.c src/arena.c
+$(TEST_DIR)/test_scanner: $(TEST_DIR)/test_scanner.c src/scanner.c src/context.c src/arena.c src/lang.c
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 $(TEST_DIR)/test_parser: $(TEST_DIR)/test_parser.c src/parser.c src/scanner.c \
-                         src/context.c src/arena.c $(CMARK_OBJS)
+                         src/context.c src/arena.c src/lang.c $(CMARK_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 $(TEST_DIR)/test_linker: $(TEST_DIR)/test_linker.c src/linker.c src/parser.c src/scanner.c \
-                         src/context.c src/arena.c $(CMARK_OBJS)
+                         src/context.c src/arena.c src/lang.c $(CMARK_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 $(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c \
@@ -91,7 +91,7 @@ $(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c \
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 $(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/linker.c \
-                           src/parser.c src/scanner.c src/context.c src/arena.c $(CMARK_OBJS)
+                           src/parser.c src/scanner.c src/context.c src/arena.c src/lang.c $(CMARK_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
 
 # Run all tests (stop on first failure)

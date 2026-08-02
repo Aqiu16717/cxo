@@ -164,30 +164,32 @@ static void scan_lang_dir(cxo_context_t* ctx, arena_t* arena,
     }
 }
 
-/* Scan content directory for zh/ and en/ subdirectories */
+/* Scan content directory for one subdirectory per supported language */
 int cxo_scan_content(cxo_context_t* ctx, arena_t* arena,
                      const char* content_dir)
 {
     struct stat st;
+    size_t i;
     int rc;
-    
+
     /* Check if content directory exists */
     if (stat(content_dir, &st) != 0 || !S_ISDIR(st.st_mode)) {
         fprintf(stderr, "Error: Content directory %s does not exist\n",
                 content_dir);
         return CXO_ERR_NODIR;
     }
-    
+
     /* Initialize entries array */
     rc = init_entries_array(ctx, arena);
     if (CXO_IS_ERR(rc)) {
         fprintf(stderr, "Error: Failed to init entries array\n");
         return rc;
     }
-    
-    /* Scan both language directories */
-    scan_lang_dir(ctx, arena, content_dir, "zh");
-    scan_lang_dir(ctx, arena, content_dir, "en");
-    
+
+    /* Scan every language directory */
+    for (i = 0; i < CXO_LANG_COUNT; i++) {
+        scan_lang_dir(ctx, arena, content_dir, CXO_LANGS[i].code);
+    }
+
     return CXO_OK;
 }

@@ -291,8 +291,13 @@ static void get_current_date(char* buf, size_t size)
 /* Create project directories */
 static int create_project_dirs(void)
 {
-    mkdir_p("content/zh");
-    mkdir_p("content/en");
+    size_t i;
+    char path[64];
+
+    for (i = 0; i < CXO_LANG_COUNT; i++) {
+        snprintf(path, sizeof(path), "content/%s", CXO_LANGS[i].code);
+        mkdir_p(path);
+    }
     mkdir_p("themes/default");
     mkdir_p("static");
     return CXO_OK;
@@ -302,8 +307,9 @@ static int create_project_dirs(void)
 static int create_sample_post(void)
 {
     char date[16];
+    char path[64];
     char post_content[512];
-    
+
     get_current_date(date, sizeof(date));
     snprintf(post_content, sizeof(post_content),
              "---\n"
@@ -313,9 +319,10 @@ static int create_sample_post(void)
              "---\n"
              "\n"
              "Welcome to CXO!\n", date);
-    
-    write_file("content/zh/hello.md", post_content);
-    printf("Created: content/zh/hello.md\n");
+
+    snprintf(path, sizeof(path), "content/%s/hello.md", CXO_LANGS[0].code);
+    write_file(path, post_content);
+    printf("Created: %s\n", path);
     return CXO_OK;
 }
 
@@ -514,19 +521,24 @@ int cmd_new(const char* title)
         return CXO_ERR_IO;
     }
     
-    /* Ensure content/zh exists */
-    mkdir_p("content/zh");
-    
+    /* Ensure default language content dir exists */
+    {
+        char dir[64];
+        snprintf(dir, sizeof(dir), "content/%s", CXO_LANGS[0].code);
+        mkdir_p(dir);
+    }
+
     /* Generate slug */
     generate_slug(title, slug, sizeof(slug));
     if (strlen(slug) == 0) {
         fprintf(stderr, "Error: Invalid title\n");
         return CXO_ERR_INVAL;
     }
-    
+
     /* Check if exists */
     get_current_date(date, sizeof(date));
-    snprintf(filename, sizeof(filename), "content/zh/%s.md", slug);
+    snprintf(filename, sizeof(filename), "content/%s/%s.md",
+             CXO_LANGS[0].code, slug);
     if (stat(filename, &st) == 0) {
         fprintf(stderr, "Error: File already exists: %s\n", filename);
         return CXO_ERR_IO;

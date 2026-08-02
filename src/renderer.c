@@ -484,30 +484,37 @@ static int ensure_dir(const char* path)
 static char* build_lang_switch(arena_t* arena, const cxo_entry_t* entry)
 {
     char buf[256];
-    const char* url;
-    const char* label;
-    
+    const cxo_lang_t* peer_lang;
+
     if (!entry->peer) {
         return arena_strdup(arena, "");
     }
-    
-    if (strcmp(entry->peer->lang, "en") == 0) {
-        url = "/en/posts/";
-        label = "English";
+
+    peer_lang = cxo_lang_find(entry->peer->lang);
+    if (peer_lang && peer_lang->prefix[0]) {
+        snprintf(buf, sizeof(buf), "<a href=\"/%s/posts/%s.html\">%s</a>",
+                 peer_lang->prefix, entry->peer->slug, peer_lang->label);
     } else {
-        url = "/posts/";
-        label = "中文";
+        snprintf(buf, sizeof(buf), "<a href=\"/posts/%s.html\">%s</a>",
+                 entry->peer->slug,
+                 peer_lang ? peer_lang->label : entry->peer->lang);
     }
-    
-    snprintf(buf, sizeof(buf), "<a href=\"%s%s.html\">%s</a>",
-             url, entry->peer->slug, label);
     return arena_strdup(arena, buf);
 }
 
-/* Get output subdirectory */
+/* Get output subdirectory for a language's posts, e.g. "posts" or "en/posts".
+ * Returns pointer to static buffer (same pattern as rfc822_date). */
 static const char* get_output_subdir(const char* lang)
 {
-    return (strcmp(lang, "en") == 0) ? "en/posts" : "posts";
+    static char buf[64];
+    const cxo_lang_t* l = cxo_lang_find(lang);
+
+    if (l && l->prefix[0]) {
+        snprintf(buf, sizeof(buf), "%s/posts", l->prefix);
+    } else {
+        snprintf(buf, sizeof(buf), "posts");
+    }
+    return buf;
 }
 
 /* Build prev/next navigation link */
@@ -556,28 +563,32 @@ static void sort_entries(cxo_context_t* ctx)
 static void assign_prev_next(cxo_context_t* ctx)
 {
     size_t i;
-    cxo_entry_t* last_zh = NULL;
-    cxo_entry_t* last_en = NULL;
-    
+    cxo_entry_t* last[CXO_MAX_LANGS];
+
+    for (i = 0; i < CXO_MAX_LANGS; i++) {
+        last[i] = NULL;
+    }
+
     /* First pass (newest to oldest): assign next (newer) pointers */
     for (i = 0; i < ctx->count; i++) {
         cxo_entry_t* entry = ctx->entries[i];
-        cxo_entry_t** last = (strcmp(entry->lang, "en") == 0) ? &last_en : &last_zh;
-        
-        entry->next = *last;
+        size_t li = cxo_lang_index(entry->lang);
+
+        entry->next = last[li];
         entry->prev = NULL;
-        *last = entry;
+        last[li] = entry;
     }
-    
+
     /* Second pass (oldest to newest): assign prev (older) pointers */
-    last_zh = NULL;
-    last_en = NULL;
+    for (i = 0; i < CXO_MAX_LANGS; i++) {
+        last[i] = NULL;
+    }
     for (i = ctx->count; i > 0; i--) {
         cxo_entry_t* entry = ctx->entries[i - 1];
-        cxo_entry_t** last = (strcmp(entry->lang, "en") == 0) ? &last_en : &last_zh;
-        
-        entry->prev = *last;
-        *last = entry;
+        size_t li = cxo_lang_index(entry->lang);
+
+        entry->prev = last[li];
+        last[li] = entry;
     }
 }
 
@@ -801,7 +812,10 @@ static char* build_site_meta_tags(const cxo_context_t* ctx,
     base = ctx->base_url ? ctx->base_url : "";
     title = ctx->site_title ? ctx->site_title : "";
     desc = ctx->site_description ? ctx->site_description : "";
-    locale = (strcmp(lang, "en") == 0) ? "en_US" : "zh_CN";
+    {
+        const cxo_lang_t* l = cxo_lang_find(lang);
+        locale = l ? l->locale : CXO_LANGS[0].locale;
+    }
 
     snprintf(url, sizeof(url), "%s%s", base, page_url);
     return build_meta_tags(arena, title, desc, url, "website", locale);
@@ -1051,13 +1065,20 @@ static char* build_tag_links(cxo_entry_t* entry, arena_t* arena)
     size_t total_len;
     char* buf;
     size_t offset;
-    const char* tag_prefix;
-    
+    char tag_prefix[64];
+
     if (entry->tag_count == 0) {
         return arena_strdup(arena, "");
     }
-    
-    tag_prefix = (strcmp(entry->lang, "en") == 0) ? "/en/tags/" : "/tags/";
+
+    {
+        const cxo_lang_t* l = cxo_lang_find(entry->lang);
+        if (l && l->prefix[0]) {
+            snprintf(tag_prefix, sizeof(tag_prefix), "/%s/tags/", l->prefix);
+        } else {
+            snprintf(tag_prefix, sizeof(tag_prefix), "/tags/");
+        }
+    }
     
     total_len = 32;
     for (i = 0; i < entry->tag_count; i++) {
@@ -1196,20 +1217,29 @@ static char* build_pagination(arena_t* arena, const char* lang,
 {
     char buf[512];
     size_t offset = 0;
-    const char* prefix;
-    
+    char prefix[40];
+    char home[44];
+
     if (page_count <= 1) {
         return arena_strdup(arena, "");
     }
-    
-    prefix = (strcmp(lang, "en") == 0) ? "/en" : "";
+
+    {
+        const cxo_lang_t* l = cxo_lang_find(lang);
+        if (l && l->prefix[0]) {
+            snprintf(prefix, sizeof(prefix), "/%s", l->prefix);
+        } else {
+            prefix[0] = '\0';
+        }
+    }
+    snprintf(home, sizeof(home), "%s/", prefix);
     offset = snprintf(buf, sizeof(buf), "<nav class=\"pagination\">\n");
-    
+
     if (page > 1) {
         if (page == 2) {
             offset += snprintf(buf + offset, sizeof(buf) - offset,
                                "<a href=\"%s\" class=\"newer\">← Newer Posts</a>\n",
-                               prefix[0] ? "/en/" : "/");
+                               home);
         } else {
             offset += snprintf(buf + offset, sizeof(buf) - offset,
                                "<a href=\"%s/page/%lu/\" class=\"newer\">← Newer Posts</a>\n",
@@ -1330,11 +1360,14 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
     char stripped_desc[1024];
     
     base_url = ctx->base_url ? ctx->base_url : "http://localhost";
-    
-    if (strcmp(lang, "en") == 0) {
-        snprintf(path, sizeof(path), "%s/en/rss.xml", output_dir);
-    } else {
-        snprintf(path, sizeof(path), "%s/rss.xml", output_dir);
+
+    {
+        const cxo_lang_t* l = cxo_lang_find(lang);
+        if (l && l->prefix[0]) {
+            snprintf(path, sizeof(path), "%s/%s/rss.xml", output_dir, l->prefix);
+        } else {
+            snprintf(path, sizeof(path), "%s/rss.xml", output_dir);
+        }
     }
     
     fp = fopen(path, "w");
@@ -1474,30 +1507,32 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
     
     /* Add paginated index pages to sitemap */
     {
-        size_t zh_count = count_matching_entries(ctx, "zh", 0);
-        size_t en_count = count_matching_entries(ctx, "en", 0);
-        size_t zh_pages = ctx->posts_per_page > 0 ?
-            (zh_count + ctx->posts_per_page - 1) / ctx->posts_per_page : 1;
-        size_t en_pages = ctx->posts_per_page > 0 ?
-            (en_count + ctx->posts_per_page - 1) / ctx->posts_per_page : 1;
+        size_t li;
         size_t p;
-        
-        for (p = 2; p <= zh_pages; p++) {
-            fprintf(fp,
-                    "<url>\n"
-                    "<loc>%s/page/%lu/</loc>\n"
-                    "<priority>0.6</priority>\n"
-                    "</url>\n",
-                    base_url, (unsigned long)p);
-        }
-        
-        for (p = 2; p <= en_pages; p++) {
-            fprintf(fp,
-                    "<url>\n"
-                    "<loc>%s/en/page/%lu/</loc>\n"
-                    "<priority>0.6</priority>\n"
-                    "</url>\n",
-                    base_url, (unsigned long)p);
+
+        for (li = 0; li < CXO_LANG_COUNT; li++) {
+            const cxo_lang_t* l = &CXO_LANGS[li];
+            size_t count = count_matching_entries(ctx, l->code, 0);
+            size_t pages = ctx->posts_per_page > 0 ?
+                (count + ctx->posts_per_page - 1) / ctx->posts_per_page : 1;
+
+            for (p = 2; p <= pages; p++) {
+                if (l->prefix[0]) {
+                    fprintf(fp,
+                            "<url>\n"
+                            "<loc>%s/%s/page/%lu/</loc>\n"
+                            "<priority>0.6</priority>\n"
+                            "</url>\n",
+                            base_url, l->prefix, (unsigned long)p);
+                } else {
+                    fprintf(fp,
+                            "<url>\n"
+                            "<loc>%s/page/%lu/</loc>\n"
+                            "<priority>0.6</priority>\n"
+                            "</url>\n",
+                            base_url, (unsigned long)p);
+                }
+            }
         }
     }
     
@@ -1548,37 +1583,51 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
         }
         
         for (j = 0; j < year_count; j++) {
-            fprintf(fp,
-                    "<url>\n"
-                    "<loc>%s/%s/</loc>\n"
-                    "<priority>0.5</priority>\n"
-                    "</url>\n",
-                    base_url, years[j]);
-            fprintf(fp,
-                    "<url>\n"
-                    "<loc>%s/en/%s/</loc>\n"
-                    "<priority>0.5</priority>\n"
-                    "</url>\n",
-                    base_url, years[j]);
+            size_t li;
+            for (li = 0; li < CXO_LANG_COUNT; li++) {
+                const cxo_lang_t* l = &CXO_LANGS[li];
+                if (l->prefix[0]) {
+                    fprintf(fp,
+                            "<url>\n"
+                            "<loc>%s/%s/%s/</loc>\n"
+                            "<priority>0.5</priority>\n"
+                            "</url>\n",
+                            base_url, l->prefix, years[j]);
+                } else {
+                    fprintf(fp,
+                            "<url>\n"
+                            "<loc>%s/%s/</loc>\n"
+                            "<priority>0.5</priority>\n"
+                            "</url>\n",
+                            base_url, years[j]);
+                }
+            }
         }
-        
+
         for (j = 0; j < month_count; j++) {
-            fprintf(fp,
-                    "<url>\n"
-                    "<loc>%s/%c%c%c%c/%c%c/</loc>\n"
-                    "<priority>0.5</priority>\n"
-                    "</url>\n",
-                    base_url,
-                    months[j][0], months[j][1], months[j][2], months[j][3],
-                    months[j][5], months[j][6]);
-            fprintf(fp,
-                    "<url>\n"
-                    "<loc>%s/en/%c%c%c%c/%c%c/</loc>\n"
-                    "<priority>0.5</priority>\n"
-                    "</url>\n",
-                    base_url,
-                    months[j][0], months[j][1], months[j][2], months[j][3],
-                    months[j][5], months[j][6]);
+            size_t li;
+            for (li = 0; li < CXO_LANG_COUNT; li++) {
+                const cxo_lang_t* l = &CXO_LANGS[li];
+                if (l->prefix[0]) {
+                    fprintf(fp,
+                            "<url>\n"
+                            "<loc>%s/%s/%c%c%c%c/%c%c/</loc>\n"
+                            "<priority>0.5</priority>\n"
+                            "</url>\n",
+                            base_url, l->prefix,
+                            months[j][0], months[j][1], months[j][2],
+                            months[j][3], months[j][5], months[j][6]);
+                } else {
+                    fprintf(fp,
+                            "<url>\n"
+                            "<loc>%s/%c%c%c%c/%c%c/</loc>\n"
+                            "<priority>0.5</priority>\n"
+                            "</url>\n",
+                            base_url,
+                            months[j][0], months[j][1], months[j][2],
+                            months[j][3], months[j][5], months[j][6]);
+                }
+            }
         }
     }
     
@@ -1704,14 +1753,21 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     char path[MAX_OUTPUT_PATH];
     char* list_html;
     char* html;
-    const char* subdir;
-    
+    char subdir[64];
+
     list_html = build_tag_entry_list(ctx, arena, tag, lang);
     if (!list_html) {
         return CXO_OK;
     }
-    
-    subdir = (strcmp(lang, "en") == 0) ? "en/tags" : "tags";
+
+    {
+        const cxo_lang_t* l = cxo_lang_find(lang);
+        if (l && l->prefix[0]) {
+            snprintf(subdir, sizeof(subdir), "%s/tags", l->prefix);
+        } else {
+            snprintf(subdir, sizeof(subdir), "tags");
+        }
+    }
     snprintf(path, sizeof(path), "%s/%s", output_dir, subdir);
     if (ensure_dir(path) != CXO_OK) {
         return CXO_ERR_IO;
@@ -1829,15 +1885,22 @@ static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
     char path[MAX_OUTPUT_PATH];
     char* list_html;
     char* html;
-    const char* prefix;
+    char prefix[40];
     char title[64];
-    
+
     list_html = build_archive_entry_list(ctx, arena, lang, year, month);
     if (!list_html) {
         return CXO_OK;
     }
-    
-    prefix = (strcmp(lang, "en") == 0) ? "en/" : "";
+
+    {
+        const cxo_lang_t* l = cxo_lang_find(lang);
+        if (l && l->prefix[0]) {
+            snprintf(prefix, sizeof(prefix), "%s/", l->prefix);
+        } else {
+            prefix[0] = '\0';
+        }
+    }
     
     if (month) {
         char dir_path[MAX_OUTPUT_PATH];
@@ -2003,17 +2066,19 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
     char* entry_list;
     char* html;
     char* pagination;
-    
+    const cxo_lang_t* l = cxo_lang_find(lang);
+    const char* pfx = (l && l->prefix[0]) ? l->prefix : NULL;
+
     if (page == 1) {
-        if (strcmp(lang, "en") == 0) {
-            snprintf(path, sizeof(path), "%s/en/index.html", output_dir);
+        if (pfx) {
+            snprintf(path, sizeof(path), "%s/%s/index.html", output_dir, pfx);
         } else {
             snprintf(path, sizeof(path), "%s/index.html", output_dir);
         }
     } else {
-        if (strcmp(lang, "en") == 0) {
-            snprintf(path, sizeof(path), "%s/en/page/%lu/index.html",
-                     output_dir, (unsigned long)page);
+        if (pfx) {
+            snprintf(path, sizeof(path), "%s/%s/page/%lu/index.html",
+                     output_dir, pfx, (unsigned long)page);
         } else {
             snprintf(path, sizeof(path), "%s/page/%lu/index.html",
                      output_dir, (unsigned long)page);
@@ -2051,15 +2116,15 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
     {
         char page_url[128];
         if (page == 1) {
-            if (strcmp(lang, "en") == 0) {
-                snprintf(page_url, sizeof(page_url), "/en/");
+            if (pfx) {
+                snprintf(page_url, sizeof(page_url), "/%s/", pfx);
             } else {
                 snprintf(page_url, sizeof(page_url), "/");
             }
         } else {
-            if (strcmp(lang, "en") == 0) {
-                snprintf(page_url, sizeof(page_url), "/en/page/%lu/",
-                         (unsigned long)page);
+            if (pfx) {
+                snprintf(page_url, sizeof(page_url), "/%s/page/%lu/",
+                         pfx, (unsigned long)page);
             } else {
                 snprintf(page_url, sizeof(page_url), "/page/%lu/",
                          (unsigned long)page);
@@ -2169,59 +2234,52 @@ int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
     /* Generate index pages */
     {
         char* index_tmpl = load_index_template(arena, ctx->theme_path);
-        rc = render_index(ctx, arena, output_dir, "zh", index_tmpl);
-        if (CXO_IS_ERR(rc)) {
-            return rc;
-        }
-        rc = render_index(ctx, arena, output_dir, "en", index_tmpl);
-        if (CXO_IS_ERR(rc)) {
-            return rc;
+        for (i = 0; i < CXO_LANG_COUNT; i++) {
+            rc = render_index(ctx, arena, output_dir, CXO_LANGS[i].code,
+                              index_tmpl);
+            if (CXO_IS_ERR(rc)) {
+                return rc;
+            }
         }
     }
-    
+
     /* Generate tag pages */
     {
         char* tag_tmpl = load_tag_template(arena, ctx->theme_path);
         char* unique_tags[MAX_UNIQUE_TAGS];
         size_t tag_count;
         size_t t;
-        
+
         tag_count = collect_unique_tags(ctx, unique_tags);
         for (t = 0; t < tag_count; t++) {
-            rc = render_tag_page(ctx, arena, output_dir, "zh", unique_tags[t],
-                                 tag_tmpl);
-            if (CXO_IS_ERR(rc)) {
-                return rc;
-            }
-            rc = render_tag_page(ctx, arena, output_dir, "en", unique_tags[t],
-                                 tag_tmpl);
-            if (CXO_IS_ERR(rc)) {
-                return rc;
+            for (i = 0; i < CXO_LANG_COUNT; i++) {
+                rc = render_tag_page(ctx, arena, output_dir, CXO_LANGS[i].code,
+                                     unique_tags[t], tag_tmpl);
+                if (CXO_IS_ERR(rc)) {
+                    return rc;
+                }
             }
         }
     }
-    
+
     /* Generate archive pages */
     {
         char* archive_tmpl = load_archive_template(arena, ctx->theme_path);
-        rc = render_archive_pages(ctx, arena, output_dir, "zh", archive_tmpl);
-        if (CXO_IS_ERR(rc)) {
-            return rc;
-        }
-        rc = render_archive_pages(ctx, arena, output_dir, "en", archive_tmpl);
-        if (CXO_IS_ERR(rc)) {
-            return rc;
+        for (i = 0; i < CXO_LANG_COUNT; i++) {
+            rc = render_archive_pages(ctx, arena, output_dir,
+                                      CXO_LANGS[i].code, archive_tmpl);
+            if (CXO_IS_ERR(rc)) {
+                return rc;
+            }
         }
     }
-    
+
     /* Generate RSS feeds */
-    rc = render_rss(ctx, arena, output_dir, "zh");
-    if (CXO_IS_ERR(rc)) {
-        return rc;
-    }
-    rc = render_rss(ctx, arena, output_dir, "en");
-    if (CXO_IS_ERR(rc)) {
-        return rc;
+    for (i = 0; i < CXO_LANG_COUNT; i++) {
+        rc = render_rss(ctx, arena, output_dir, CXO_LANGS[i].code);
+        if (CXO_IS_ERR(rc)) {
+            return rc;
+        }
     }
     
     /* Generate sitemap */

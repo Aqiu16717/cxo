@@ -16,6 +16,25 @@
 /* Version info */
 #define CXO_VERSION "0.1.0"
 
+/* Language descriptor - single source of truth for supported languages */
+typedef struct {
+    const char* code;    /* Language code, e.g. "zh" */
+    const char* prefix;  /* URL prefix: "" for the default lang, else "en" */
+    const char* locale;  /* Locale for og:locale, e.g. "zh_CN" */
+    const char* label;   /* Display name for language switch, e.g. "中文" */
+} cxo_lang_t;
+
+#define CXO_MAX_LANGS 8
+
+extern const cxo_lang_t CXO_LANGS[];
+extern const size_t CXO_LANG_COUNT;
+
+/* Look up a language by code; NULL if unknown */
+const cxo_lang_t* cxo_lang_find(const char* code);
+
+/* Table index of a language code; 0 (default language) if unknown */
+size_t cxo_lang_index(const char* code);
+
 /* Single blog entry */
 typedef struct cxo_entry {
     char* id;               /* Cross-language unique identifier */
