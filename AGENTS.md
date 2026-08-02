@@ -63,10 +63,18 @@ Compiler flags: `-Wall -Wextra -std=c11 -O2`. Dependency tracking is enabled via
 │   └── toml.h         # toml-c parser API
 ├── src/               # Source files
 │   ├── main.c         # CLI entry point and command dispatch
-│   ├── scanner.c      # Recursively scan content/zh and content/en
+│   ├── scanner.c      # Recursively scan one content/<lang>/ dir per language
 │   ├── parser.c       # YAML frontmatter extraction, markdown→HTML, TOC generation
 │   ├── linker.c       # Bilingual entry linking via hash table (djb2)
-│   ├── renderer.c     # Template engine, site generation, RSS, sitemap, archives
+│   ├── lang.c         # Language descriptor table (cxo_lang_t): code/prefix/locale/label
+│   ├── renderer.c     # cxo_render_site orchestrator only
+│   ├── template.c     # Template loading, replace_var, escape_attr, fallback templates
+│   ├── render_posts.c # Post pages, prev/next, lang switch, SEO meta tags
+│   ├── render_index.c # Index pages + pagination
+│   ├── render_taxonomy.c # Tag pages + year/month archive pages
+│   ├── render_feeds.c # RSS feeds + sitemap
+│   ├── path_util.c    # ensure_dir, file copy, cxo_entry_url, output paths
+│   ├── renderer_internal.h # Cross-module declarations (private to src/)
 │   ├── config.c       # TOML config parsing with defaults
 │   ├── context.c      # cxo_context_t and cxo_entry_t allocation
 │   ├── arena.c        # Arena implementation (defines ARENA_IMPLEMENTATION)
@@ -100,7 +108,7 @@ The build pipeline follows a strict four-phase flow in `main.c`:
 2. **Scanner** (`scanner.c`): Recursively traverse `content/zh` and `content/en`, creating a `cxo_entry_t` per `.md` file. Slug defaults to filename without `.md`; `id` initially equals slug.
 3. **Parser** (`parser.c`): For each entry, read the file, extract YAML frontmatter (`---` delimited), convert markdown body to HTML via `cmark_markdown_to_html()`, auto-generate table of contents with heading anchors, and auto-generate description excerpt from HTML if missing.
 4. **Linker** (`linker.c`): Build a hash table (size 64, djb2 hash) keyed by `entry->id`. When two entries share the same `id` but have different `lang`, they are linked via the `peer` pointer bidirectionally.
-5. **Renderer** (`renderer.c`): Sort entries by date descending, assign `prev`/`next` chronologically within each language, then generate:
+5. **Renderer** (`renderer.c` orchestrator + `render_*.c` modules): Sort entries by date descending, assign `prev`/`next` chronologically within each language, then generate:
    - Individual post HTML pages (`public/posts/` and `public/en/posts/`)
    - Index pages with optional pagination
    - Tag aggregation pages (`public/tags/` and `public/en/tags/`)
@@ -210,7 +218,7 @@ cxo help              # Show usage (alias: cxo -h)
 - **Pagination**: Configurable `posts_per_page` in `config.toml`; `0` or omitted disables pagination.
 - **Auto excerpts**: If `description` is absent, the renderer strips HTML tags and truncates to ~150 chars.
 - **Table of Contents**: Automatically generated from HTML headings (h1–h6). Heading anchors are slugified; duplicates get numeric suffixes (`foo-2`, `foo-3`).
-- **Template fallback**: If theme files are missing, hardcoded fallback templates in `renderer.c` are used.
+- **Template fallback**: If theme files are missing, hardcoded fallback templates in `template.c` are used.
 - **Static assets**: `static/` directory is recursively copied to `public/` on every build.
 - **SEO meta tags**: Open Graph and Twitter Card tags auto-generated per page via `{{meta_tags}}`.
 - **Cross-platform**: Builds on Linux, macOS, and Windows (MinGW-w64/MSYS2) via `include/platform.h` abstraction layer
@@ -252,7 +260,7 @@ Template files live in `themes/default/`:
 
 ### Template Variables
 
-**Escaping contract** (enforced in `renderer.c` via `escape_attr()`, which
+**Escaping contract** (enforced via `escape_attr()` in `template.c`, which
 escapes `& < > "`):
 
 - **Plain-text variables** — escaped before injection; themes must NOT

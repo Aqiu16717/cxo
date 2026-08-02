@@ -33,12 +33,13 @@ Strict four-phase pipeline in `main.c`, driven by a `cxo_context_t` holding an a
 1. **Scanner** (`scanner.c`) — recursively walks `content/zh/` and `content/en/`, creating an entry per `.md` file.
 2. **Parser** (`parser.c`) — extracts YAML frontmatter, converts markdown to HTML via embedded cmark, generates TOC with slugified heading anchors, auto-generates description excerpts.
 3. **Linker** (`linker.c`) — hash table (size 64, djb2) keyed by frontmatter `id`; entries in different languages sharing an `id` are linked bidirectionally via `entry->peer`.
-4. **Renderer** (`renderer.c`) — sorts by date, assigns `prev`/`next` within each language, emits posts, paginated indexes, tag pages, year/month archives, RSS, sitemap; copies theme CSS and `static/` assets into `public/`.
+4. **Renderer** (`renderer.c` orchestrator + modules): sorts by date, assigns `prev`/`next` within each language, emits posts, paginated indexes, tag pages, year/month archives, RSS, sitemap; copies theme CSS and `static/` assets into `public/`. Modules: `template.c` (template loading, `replace_var`, `escape_attr`, fallbacks), `render_posts.c`, `render_index.c`, `render_taxonomy.c`, `render_feeds.c`, `path_util.c` (dirs, copy, `cxo_entry_url`); shared declarations in `src/renderer_internal.h`.
 
 Key facts that span files:
 
-- **Bilingual routing**: zh is the default at `/posts/`, en lives under `/en/`. The `peer` pointer drives the `{{nav_lang_switch}}` template variable.
-- **Templates** are pure `{{var}}` string substitution — no loops/conditionals; lists are pre-rendered HTML injected as single variables. Missing theme files fall back to hardcoded templates in `renderer.c`.
+- **Bilingual routing**: zh is the default at `/posts/`, en lives under `/en/`. The `peer` pointer drives the `{{nav_lang_switch}}` template variable. Supported languages are defined once in the `cxo_lang_t` table (`src/lang.c`: code/prefix/locale/label) — never hardcode `strcmp(lang, "en")`.
+- **Entry URLs**: `cxo_entry_url()` (`path_util.c`) is the single authority for entry URL paths; all consumers (meta, RSS, sitemap, nav, lists) must use it.
+- **Templates** are pure `{{var}}` string substitution — no loops/conditionals; lists are pre-rendered HTML injected as single variables. Missing theme files fall back to hardcoded templates in `template.c`. Plain-text variables are HTML-escaped at injection; HTML variables are trusted (contract documented in AGENTS.md).
 - **Drafts** are skipped unless `CXO_DRAFT=1`; hot-reload script injection is controlled by `CXO_HOTRELOAD`.
 - **Config** (`config.toml`) is optional — missing or unparsable files fall back to hardcoded defaults.
 
