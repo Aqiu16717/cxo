@@ -18,6 +18,7 @@
 /* path_util.c */
 char* read_file_to_arena(arena_t* arena, const char* path);
 int ensure_dir(const char* path);
+int copy_dir_recursive(const char* src, const char* dst);
 int copy_static_files(const char* output_dir);
 int copy_theme_assets(const char* theme_path, const char* output_dir);
 const char* get_output_subdir(const char* lang);

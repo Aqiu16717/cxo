@@ -75,7 +75,7 @@ static int copy_file(const char* src, const char* dst)
 }
 
 /* Recursively copy directory contents from src to dst */
-static int copy_dir_recursive(const char* src, const char* dst)
+int copy_dir_recursive(const char* src, const char* dst)
 {
     DIR* dir;
     struct dirent* entry;

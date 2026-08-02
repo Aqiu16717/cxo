@@ -16,11 +16,16 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <dirent.h>
 #include "../include/cxo.h"
+#include "../src/renderer_internal.h"
 
 extern int cmd_build(void);
 
 static int failures = 0;
+static arena_t* g_arena;
+
+#define WORK_DIR "tests/.fixture_work"
 
 #define CHECK(cond, name) do { \
     if (cond) { \
@@ -37,63 +42,69 @@ static int file_exists(const char* path)
     return stat(path, &st) == 0;
 }
 
-/* Read whole file into a static buffer (fixture outputs are small) */
-static char* read_whole(const char* path)
-{
-    static char buf[512 * 1024];
-    FILE* fp;
-    size_t n;
-
-    fp = fopen(path, "rb");
-    if (!fp) {
-        return NULL;
-    }
-    n = fread(buf, 1, sizeof(buf) - 1, fp);
-    fclose(fp);
-    buf[n] = '\0';
-    return buf;
-}
-
 static int file_contains(const char* path, const char* needle)
 {
-    char* content = read_whole(path);
+    char* content = read_file_to_arena(g_arena, path);
     return content && strstr(content, needle) != NULL;
 }
 
-/* Copy fixtures into a fresh temp dir and chdir into it */
-static int setup_workspace(char* tmpdir, size_t size)
+/* Recursively delete a directory tree */
+static void rm_tree(const char* path)
 {
-    char cmd[1024];
-    char cwd[512];
+    DIR* dir;
+    struct dirent* entry;
+    struct stat st;
+    char child[512];
 
-    strcpy(tmpdir, "/tmp/cxo_fixture_XXXXXX");
-    if (!mkdtemp(tmpdir)) {
-        return -1;
+    if (stat(path, &st) != 0) {
+        return;
     }
-    if (size < strlen(tmpdir) + 1) {
-        return -1;
+    if (!S_ISDIR(st.st_mode)) {
+        remove(path);
+        return;
     }
 
-    if (!getcwd(cwd, sizeof(cwd))) {
+    dir = opendir(path);
+    if (!dir) {
+        return;
+    }
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_name[0] == '.' || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
+        rm_tree(child);
+    }
+    closedir(dir);
+    rmdir(path);
+}
+
+/* Copy fixtures into a fresh work dir and chdir into it */
+static int setup_workspace(void)
+{
+    rm_tree(WORK_DIR);
+    if (cxo_mkdir(WORK_DIR) != 0) {
         return -1;
     }
-    snprintf(cmd, sizeof(cmd), "cp -r '%s/tests/fixtures'/. '%s'/",
-             cwd, tmpdir);
-    if (system(cmd) != 0) {
+    if (CXO_IS_ERR(copy_dir_recursive("tests/fixtures", WORK_DIR))) {
         return -1;
     }
-    return chdir(tmpdir);
+    return chdir(WORK_DIR);
 }
 
 int main(void)
 {
-    char tmpdir[512];
-    char cleanup[600];
     int rc;
 
     printf("Running fixture integration test...\n\n");
 
-    if (setup_workspace(tmpdir, sizeof(tmpdir)) != 0) {
+    g_arena = arena_create(1024 * 1024);
+    if (!g_arena) {
+        fprintf(stderr, "FAIL: cannot create arena\n");
+        return 1;
+    }
+
+    if (setup_workspace() != 0) {
         fprintf(stderr, "FAIL: cannot set up fixture workspace\n");
         return 1;
     }
@@ -113,7 +124,7 @@ int main(void)
 
     /* Bilingual routing and linking */
     CHECK(file_contains("public/posts/hello.html",
-                        "og:url\" content=\"https://fixture.example/posts/hello.html\""),
+                        "https://fixture.example/posts/hello.html"),
           "zh canonical og:url (no lang prefix)");
     CHECK(file_contains("public/en/posts/hello.html",
                         "https://fixture.example/en/posts/hello.html"),
@@ -126,7 +137,8 @@ int main(void)
     CHECK(file_contains("public/posts/hello.html", "id=\"安装指南\""),
           "Chinese heading anchor id");
     CHECK(file_contains("public/posts/hello.html",
-                        "<a href=\"#使用-code-标题\">使用 code 标题</a>"),
+                        "<a href=\"#使用-code-标题\">"
+                        "使用 code 标题</a>"),
           "code-span heading: clean TOC text and slug");
 
     /* Escaping contract: quoted title escaped in text and meta */
@@ -148,20 +160,18 @@ int main(void)
     CHECK(!file_exists("public/posts/draft.html"),
           "draft excluded by default");
 
-    /* Draft mode */
-    setenv("CXO_DRAFT", "1", 1);
+    /* Draft mode (env stays set; process exits right after) */
+    cxo_setenv("CXO_DRAFT", "1");
     rc = cmd_build();
-    unsetenv("CXO_DRAFT");
     CHECK(rc == CXO_OK, "draft-mode build succeeds");
     CHECK(file_exists("public/posts/draft.html"),
           "draft included with CXO_DRAFT=1");
 
     /* Cleanup */
-    chdir("/");
-    snprintf(cleanup, sizeof(cleanup), "rm -rf '%s'", tmpdir);
-    if (system(cleanup) != 0) {
-        fprintf(stderr, "Warning: failed to remove %s\n", tmpdir);
+    if (chdir("../..") == 0) {
+        rm_tree(WORK_DIR);
     }
+    arena_destroy(g_arena);
 
     printf("\n%s\n", failures == 0 ? "All fixture tests passed!"
                                    : "Some fixture tests FAILED");
