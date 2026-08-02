@@ -485,20 +485,17 @@ static char* build_lang_switch(arena_t* arena, const cxo_entry_t* entry)
 {
     char buf[256];
     const cxo_lang_t* peer_lang;
+    char* peer_url;
 
     if (!entry->peer) {
         return arena_strdup(arena, "");
     }
 
     peer_lang = cxo_lang_find(entry->peer->lang);
-    if (peer_lang && peer_lang->prefix[0]) {
-        snprintf(buf, sizeof(buf), "<a href=\"/%s/posts/%s.html\">%s</a>",
-                 peer_lang->prefix, entry->peer->slug, peer_lang->label);
-    } else {
-        snprintf(buf, sizeof(buf), "<a href=\"/posts/%s.html\">%s</a>",
-                 entry->peer->slug,
-                 peer_lang ? peer_lang->label : entry->peer->lang);
-    }
+    peer_url = cxo_entry_url(arena, entry->peer);
+    snprintf(buf, sizeof(buf), "<a href=\"%s\">%s</a>",
+             peer_url ? peer_url : "",
+             peer_lang ? peer_lang->label : entry->peer->lang);
     return arena_strdup(arena, buf);
 }
 
@@ -517,21 +514,48 @@ static const char* get_output_subdir(const char* lang)
     return buf;
 }
 
+/* Generate the canonical URL path for an entry,
+ * e.g. "/posts/foo.html" or "/en/posts/foo.html".
+ * Single authority for entry URL routing. */
+char* cxo_entry_url(arena_t* arena, const cxo_entry_t* entry)
+{
+    const cxo_lang_t* l;
+    char* url;
+    size_t size;
+
+    if (!entry || !entry->slug) {
+        return arena_strdup(arena, "");
+    }
+
+    l = cxo_lang_find(entry->lang);
+    size = strlen(entry->slug) + 32;
+    url = arena_alloc(arena, size);
+    if (!url) {
+        return NULL;
+    }
+    if (l && l->prefix[0]) {
+        snprintf(url, size, "/%s/posts/%s.html", l->prefix, entry->slug);
+    } else {
+        snprintf(url, size, "/posts/%s.html", entry->slug);
+    }
+    return url;
+}
+
 /* Build prev/next navigation link */
 static char* build_nav_link(arena_t* arena, cxo_entry_t* entry,
                             const char* rel_class)
 {
     char buf[512];
-    const char* subdir;
-    
+    char* url;
+
     if (!entry) {
         return arena_strdup(arena, "");
     }
-    
-    subdir = get_output_subdir(entry->lang);
+
+    url = cxo_entry_url(arena, entry);
     snprintf(buf, sizeof(buf),
-             "<a href=\"/%s/%s.html\" class=\"%s\">%s</a>",
-             subdir, entry->slug, rel_class, entry->title);
+             "<a href=\"%s\" class=\"%s\">%s</a>",
+             url ? url : "", rel_class, entry->title);
     return arena_strdup(arena, buf);
 }
 
@@ -788,10 +812,11 @@ static char* build_post_meta_tags(cxo_entry_t* entry,
 {
     char url[1024];
     const char* base;
+    char* entry_url;
 
     base = ctx->base_url ? ctx->base_url : "";
-    snprintf(url, sizeof(url), "%s/%s/%s.html",
-             base, get_output_subdir(entry->lang), entry->slug);
+    entry_url = cxo_entry_url(arena, entry);
+    snprintf(url, sizeof(url), "%s%s", base, entry_url ? entry_url : "");
 
     return build_meta_tags(arena, entry->title,
                            entry->description ? entry->description : "",
@@ -1108,18 +1133,19 @@ static char* build_tag_links(cxo_entry_t* entry, arena_t* arena)
 static void append_entry_link(char* buf, size_t total_len, size_t* offset,
                               cxo_entry_t* entry, arena_t* arena)
 {
-    const char* subdir = get_output_subdir(entry->lang);
+    char* entry_url;
     char* excerpt;
     int written;
-    
+
     excerpt = build_excerpt(entry, arena);
     if (!excerpt) {
         excerpt = "";
     }
-    
+    entry_url = cxo_entry_url(arena, entry);
+
     written = snprintf(buf + *offset, total_len - *offset,
-                       "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span><div class=\"excerpt\">%s</div></li>\n",
-                       subdir, entry->slug, entry->title, entry->date,
+                       "<li><a href=\"%s\">%s</a> <span class=\"date\">%s</span><div class=\"excerpt\">%s</div></li>\n",
+                       entry_url ? entry_url : "", entry->title, entry->date,
                        excerpt);
     if (written > 0) {
         *offset += written;
@@ -1349,7 +1375,7 @@ static void strip_html(char* dst, const char* src, size_t size)
 }
 
 /* Generate RSS feed */
-static int render_rss(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
+static int render_rss(cxo_context_t* ctx, arena_t* arena,
                       const char* output_dir, const char* lang)
 {
     char path[MAX_OUTPUT_PATH];
@@ -1395,38 +1421,41 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
         cxo_entry_t* entry = ctx->entries[i];
         char item_title[256];
         char item_desc[1024];
-        const char* subdir;
-        
+        char* entry_url;
+
         if (strcmp(entry->lang, lang) != 0) {
             continue;
         }
-        
+
         /* Skip draft posts in RSS */
         if (entry->draft) {
             continue;
         }
-        
-        subdir = get_output_subdir(entry->lang);
-        
+
+        entry_url = cxo_entry_url(arena, entry);
+        if (!entry_url) {
+            entry_url = "";
+        }
+
         escape_xml(item_title, entry->title, sizeof(item_title));
         strip_html(item_desc, entry->html_content, sizeof(item_desc));
-        
+
         /* Truncate description */
         if (strlen(item_desc) > 500) {
             item_desc[500] = '\0';
             strcat(item_desc, "...");
         }
-        
+
         fprintf(fp,
                 "<item>\n"
                 "<title>%s</title>\n"
-                "<link>%s/%s/%s.html</link>\n"
-                "<guid>%s/%s/%s.html</guid>\n"
+                "<link>%s%s</link>\n"
+                "<guid>%s%s</guid>\n"
                 "<pubDate>%s</pubDate>\n"
                 "<description><![CDATA[%s]]></description>\n"
                 "</item>\n",
-                item_title, base_url, subdir, entry->slug,
-                base_url, subdir, entry->slug,
+                item_title, base_url, entry_url,
+                base_url, entry_url,
                 rfc822_date(entry->date), item_desc);
     }
     
@@ -1448,37 +1477,45 @@ static int render_rss(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
 /* Write sitemap XML header and home pages */
 static void write_sitemap_header(FILE* fp, const char* base_url)
 {
+    size_t i;
+
     fprintf(fp,
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
-    fprintf(fp,
-            "<url>\n"
-            "<loc>%s/</loc>\n"
-            "<priority>1.0</priority>\n"
-            "</url>\n", base_url);
-    fprintf(fp,
-            "<url>\n"
-            "<loc>%s/en/</loc>\n"
-            "<priority>1.0</priority>\n"
-            "</url>\n", base_url);
+    for (i = 0; i < CXO_LANG_COUNT; i++) {
+        const cxo_lang_t* l = &CXO_LANGS[i];
+        if (l->prefix[0]) {
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/%s/</loc>\n"
+                    "<priority>1.0</priority>\n"
+                    "</url>\n", base_url, l->prefix);
+        } else {
+            fprintf(fp,
+                    "<url>\n"
+                    "<loc>%s/</loc>\n"
+                    "<priority>1.0</priority>\n"
+                    "</url>\n", base_url);
+        }
+    }
 }
 
 /* Write a single sitemap entry */
 static void write_sitemap_entry(FILE* fp, cxo_entry_t* entry,
-                                const char* base_url)
+                                const char* base_url, arena_t* arena)
 {
-    const char* subdir = get_output_subdir(entry->lang);
+    char* entry_url = cxo_entry_url(arena, entry);
     fprintf(fp,
             "<url>\n"
-            "<loc>%s/%s/%s.html</loc>\n"
+            "<loc>%s%s</loc>\n"
             "<lastmod>%s</lastmod>\n"
             "<priority>0.8</priority>\n"
             "</url>\n",
-            base_url, subdir, entry->slug, entry->date);
+            base_url, entry_url ? entry_url : "", entry->date);
 }
 
 /* Generate sitemap */
-static int render_sitemap(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
+static int render_sitemap(cxo_context_t* ctx, arena_t* arena,
                           const char* output_dir)
 {
     char path[MAX_OUTPUT_PATH];
@@ -1502,7 +1539,7 @@ static int render_sitemap(cxo_context_t* ctx, arena_t* arena CXO_UNUSED,
         if (entry->draft) {
             continue;
         }
-        write_sitemap_entry(fp, entry, base_url);
+        write_sitemap_entry(fp, entry, base_url, arena);
     }
     
     /* Add paginated index pages to sitemap */
@@ -1731,10 +1768,10 @@ static char* build_tag_entry_list(cxo_context_t* ctx, arena_t* arena,
         }
         
         if (has_tag) {
-            const char* subdir = get_output_subdir(entry->lang);
+            char* entry_url = cxo_entry_url(arena, entry);
             int written = snprintf(list_html + offset, total_len - offset,
-                                   "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
-                                   subdir, entry->slug, entry->title,
+                                   "<li><a href=\"%s\">%s</a> <span class=\"date\">%s</span></li>\n",
+                                   entry_url ? entry_url : "", entry->title,
                                    entry->date);
             if (written > 0) {
                 offset += written;
@@ -1861,11 +1898,11 @@ static char* build_archive_entry_list(cxo_context_t* ctx, arena_t* arena,
         }
         if (strncmp(entry->date, year, year_len) == 0) {
             if (!month || strncmp(entry->date + year_len + 1, month, 2) == 0) {
-                const char* subdir = get_output_subdir(entry->lang);
+                char* entry_url = cxo_entry_url(arena, entry);
                 int written = snprintf(list_html + offset, total_len - offset,
-                                       "<li><a href=\"/%s/%s.html\">%s</a> <span class=\"date\">%s</span></li>\n",
-                                       subdir, entry->slug, entry->title,
-                                       entry->date);
+                                       "<li><a href=\"%s\">%s</a> <span class=\"date\">%s</span></li>\n",
+                                       entry_url ? entry_url : "",
+                                       entry->title, entry->date);
                 if (written > 0) {
                     offset += written;
                 }

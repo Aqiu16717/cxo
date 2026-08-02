@@ -85,6 +85,10 @@ int cxo_link_entries(cxo_context_t* ctx, arena_t* arena);
 int cxo_render_site(cxo_context_t* ctx, arena_t* arena,
                     const char* output_dir);
 
+/* Canonical URL path for an entry, e.g. "/posts/foo.html" or
+ * "/en/posts/foo.html". Single authority for entry URL routing. */
+char* cxo_entry_url(arena_t* arena, const cxo_entry_t* entry);
+
 /* Config - load configuration from file */
 int cxo_load_config(cxo_context_t* ctx, arena_t* arena,
                     const char* config_path);
