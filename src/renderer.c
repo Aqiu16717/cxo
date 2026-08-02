@@ -481,6 +481,8 @@ static int ensure_dir(const char* path)
 }
 
 /* Build language switch */
+static char* escape_attr(arena_t* arena, const char* src);
+
 static char* build_lang_switch(arena_t* arena, const cxo_entry_t* entry)
 {
     char buf[256];
@@ -555,7 +557,7 @@ static char* build_nav_link(arena_t* arena, cxo_entry_t* entry,
     url = cxo_entry_url(arena, entry);
     snprintf(buf, sizeof(buf),
              "<a href=\"%s\" class=\"%s\">%s</a>",
-             url ? url : "", rel_class, entry->title);
+             url ? url : "", rel_class, escape_attr(arena, entry->title));
     return arena_strdup(arena, buf);
 }
 
@@ -859,11 +861,11 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
     tag_links = build_tag_links(entry, arena);
     description = entry->description ? entry->description : "";
     
-    html = replace_var(arena, tmpl, "title", entry->title);
+    html = replace_var(arena, tmpl, "title", escape_attr(arena, entry->title));
     if (!html) {
         return NULL;
     }
-    html = replace_var(arena, html, "date", entry->date);
+    html = replace_var(arena, html, "date", escape_attr(arena, entry->date));
     if (!html) {
         return NULL;
     }
@@ -883,7 +885,8 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
     if (!html) {
         return NULL;
     }
-    html = replace_var(arena, html, "description", description);
+    html = replace_var(arena, html, "description",
+                       escape_attr(arena, description));
     if (!html) {
         return NULL;
     }
@@ -897,11 +900,13 @@ static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
     if (!html) {
         return NULL;
     }
-    html = replace_var(arena, html, "site_title", ctx->site_title);
+    html = replace_var(arena, html, "site_title",
+                       escape_attr(arena, ctx->site_title));
     if (!html) {
         return NULL;
     }
-    html = replace_var(arena, html, "site_description", ctx->site_description);
+    html = replace_var(arena, html, "site_description",
+                       escape_attr(arena, ctx->site_description));
     if (!html) {
         return NULL;
     }
@@ -1018,7 +1023,7 @@ static size_t calc_list_len(cxo_context_t* ctx, const char* lang,
         if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
-        total_len += 300 + strlen(entry->slug) + strlen(entry->title) +
+        total_len += 1200 + strlen(entry->slug) + strlen(entry->title) * 6 +
                      strlen(entry->date);
     }
     return total_len;
@@ -1107,7 +1112,7 @@ static char* build_tag_links(cxo_entry_t* entry, arena_t* arena)
     
     total_len = 32;
     for (i = 0; i < entry->tag_count; i++) {
-        total_len += strlen(tag_prefix) + strlen(entry->tags[i]) * 2 + 32;
+        total_len += strlen(tag_prefix) + strlen(entry->tags[i]) * 12 + 32;
     }
     
     buf = arena_alloc(arena, total_len);
@@ -1118,12 +1123,13 @@ static char* build_tag_links(cxo_entry_t* entry, arena_t* arena)
     offset = 0;
     
     for (i = 0; i < entry->tag_count; i++) {
+        char* esc_tag = escape_attr(arena, entry->tags[i]);
         if (i > 0) {
             offset += snprintf(buf + offset, total_len - offset, " ");
         }
         offset += snprintf(buf + offset, total_len - offset,
                            "<a href=\"%s%s.html\">%s</a>",
-                           tag_prefix, entry->tags[i], entry->tags[i]);
+                           tag_prefix, esc_tag, esc_tag);
     }
     
     return buf;
@@ -1145,8 +1151,9 @@ static void append_entry_link(char* buf, size_t total_len, size_t* offset,
 
     written = snprintf(buf + *offset, total_len - *offset,
                        "<li><a href=\"%s\">%s</a> <span class=\"date\">%s</span><div class=\"excerpt\">%s</div></li>\n",
-                       entry_url ? entry_url : "", entry->title, entry->date,
-                       excerpt);
+                       entry_url ? entry_url : "",
+                       escape_attr(arena, entry->title), entry->date,
+                       escape_attr(arena, excerpt));
     if (written > 0) {
         *offset += written;
     }
@@ -1208,7 +1215,7 @@ static char* build_paginated_entry_list(cxo_context_t* ctx, arena_t* arena,
         if (strcmp(entry->lang, lang) != 0 || (entry->draft && !include_drafts)) {
             continue;
         }
-        total_len += 300 + strlen(entry->slug) + strlen(entry->title) +
+        total_len += 1200 + strlen(entry->slug) + strlen(entry->title) * 6 +
                      strlen(entry->date);
     }
     
@@ -1771,7 +1778,8 @@ static char* build_tag_entry_list(cxo_context_t* ctx, arena_t* arena,
             char* entry_url = cxo_entry_url(arena, entry);
             int written = snprintf(list_html + offset, total_len - offset,
                                    "<li><a href=\"%s\">%s</a> <span class=\"date\">%s</span></li>\n",
-                                   entry_url ? entry_url : "", entry->title,
+                                   entry_url ? entry_url : "",
+                                   escape_attr(arena, entry->title),
                                    entry->date);
             if (written > 0) {
                 offset += written;
@@ -1827,15 +1835,17 @@ static int render_tag_page(cxo_context_t* ctx, arena_t* arena,
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "site_title", ctx->site_title);
+    html = replace_var(arena, html, "site_title",
+                       escape_attr(arena, ctx->site_title));
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "site_description", ctx->site_description);
+    html = replace_var(arena, html, "site_description",
+                       escape_attr(arena, ctx->site_description));
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "tag_name", tag);
+    html = replace_var(arena, html, "tag_name", escape_attr(arena, tag));
     if (!html) {
         html = "";
     }
@@ -1902,7 +1912,8 @@ static char* build_archive_entry_list(cxo_context_t* ctx, arena_t* arena,
                 int written = snprintf(list_html + offset, total_len - offset,
                                        "<li><a href=\"%s\">%s</a> <span class=\"date\">%s</span></li>\n",
                                        entry_url ? entry_url : "",
-                                       entry->title, entry->date);
+                                       escape_attr(arena, entry->title),
+                                       entry->date);
                 if (written > 0) {
                     offset += written;
                 }
@@ -1976,11 +1987,13 @@ static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "site_title", ctx->site_title);
+    html = replace_var(arena, html, "site_title",
+                       escape_attr(arena, ctx->site_title));
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "site_description", ctx->site_description);
+    html = replace_var(arena, html, "site_description",
+                       escape_attr(arena, ctx->site_description));
     if (!html) {
         html = "";
     }
@@ -2177,11 +2190,13 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "site_title", ctx->site_title);
+    html = replace_var(arena, html, "site_title",
+                       escape_attr(arena, ctx->site_title));
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "site_description", ctx->site_description);
+    html = replace_var(arena, html, "site_description",
+                       escape_attr(arena, ctx->site_description));
     if (!html) {
         html = "";
     }

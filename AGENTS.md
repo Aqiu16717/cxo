@@ -252,6 +252,22 @@ Template files live in `themes/default/`:
 
 ### Template Variables
 
+**Escaping contract** (enforced in `renderer.c` via `escape_attr()`, which
+escapes `& < > "`):
+
+- **Plain-text variables** — escaped before injection; themes must NOT
+  escape them again: `title`, `date`, `description`, `site_title`,
+  `site_description`, `tag_name`, and post titles/tag names inside
+  `entry_list` / `prev` / `next` / `tags`.
+- **Trusted HTML variables** — pre-rendered HTML injected raw; never put
+  untrusted text into them: `content`, `toc`, `tags`, `nav_lang_switch`,
+  `prev`, `next`, `entry_list`, `pagination`, `meta_tags`, `hotreload`.
+- `{{lang}}` and `{{archive_title}}` are engine-generated from the language
+  table / date strings and need no escaping.
+- Note: slugs and tag names are inserted into `href` attributes HTML-escaped
+  but NOT URL-encoded — keep them URL-safe (letters, digits, `-`, `_`,
+  CJK characters).
+
 **Common to all templates:**
 - `{{site_title}}`, `{{site_description}}`, `{{lang}}`
 - `{{hotreload}}` — injected in dev mode
