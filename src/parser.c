@@ -249,7 +249,8 @@ static char* skip_frontmatter_opening(char* content)
 }
 
 /* Forward declaration */
-void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena);
+void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena,
+                      const char* md_source);
 
 static int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
                           char* content, char** content_start)
@@ -352,7 +353,7 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     free(html);
     
     /* Generate table of contents and add heading IDs */
-    cxo_generate_toc(entry, arena);
+    cxo_generate_toc(entry, arena, body_start);
     
     return CXO_OK;
 }
@@ -393,98 +394,115 @@ static void slugify(char* dst, const char* src, size_t dst_size)
     dst[j] = '\0';
 }
 
-/* Generate TOC from HTML headings and add id attributes */
-void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
+/* Collect plain text of a heading node's inline children.
+ * Code spans contribute their literal text without the <code> tags. */
+static void collect_heading_text(cmark_node* heading, char* buf, size_t size)
 {
-    const char* html = entry->html_content;
-    size_t html_len;
-    heading_t headings[MAX_HEADINGS];
-    size_t hcount = 0;
-    size_t extra_len = 0;
-    const char* p;
-    const char* last;
-    char* modified;
-    char* toc;
-    size_t toc_len;
-    size_t i;
-    size_t mod_offset = 0;
-    size_t toc_offset = 0;
-    int prev_level = 0;
-    
-    if (!html) {
-        entry->toc = arena_strdup(arena, "");
-        return;
-    }
-    
-    html_len = strlen(html);
-    
-    /* First pass: find all headings */
-    p = html;
-    while (*p && hcount < MAX_HEADINGS) {
-        if (*p == '<' && p[1] == 'h' && p[2] >= '1' && p[2] <= '6' &&
-            (p[3] == '>' || isspace((unsigned char)p[3]))) {
-            int level = p[2] - '0';
-            const char* tag_end = strchr(p, '>');
-            const char* close_tag_start;
-            char close_tag[8];
-            size_t text_len;
-            
-            if (!tag_end) {
-                break;
-            }
-            
-            snprintf(close_tag, sizeof(close_tag), "</h%d>", level);
-            close_tag_start = strstr(tag_end + 1, close_tag);
-            if (!close_tag_start) {
-                break;
-            }
-            
-            text_len = close_tag_start - (tag_end + 1);
-            
-            headings[hcount].level = level;
-            headings[hcount].text = arena_alloc(arena, text_len + 1);
-            if (!headings[hcount].text) {
-                entry->toc = arena_strdup(arena, "");
-                return;
-            }
-            memcpy(headings[hcount].text, tag_end + 1, text_len);
-            headings[hcount].text[text_len] = '\0';
-            
-            headings[hcount].id = arena_alloc(arena, text_len * 2 + 32);
-            if (!headings[hcount].id) {
-                entry->toc = arena_strdup(arena, "");
-                return;
-            }
-            slugify(headings[hcount].id, headings[hcount].text,
-                    text_len * 2 + 32);
-            if (headings[hcount].id[0] == '\0') {
-                /* Heading with no slugifiable chars (e.g. punctuation only) */
-                snprintf(headings[hcount].id, text_len * 2 + 32,
-                         "heading-%lu", (unsigned long)(hcount + 1));
-            }
-            
-            extra_len += strlen(headings[hcount].id) + 16;
-            hcount++;
-            p = close_tag_start + strlen(close_tag);
-        } else {
-            p++;
+    cmark_iter* iter;
+    cmark_event_type ev;
+    size_t len = 0;
+
+    iter = cmark_iter_new(heading);
+    while ((ev = cmark_iter_next(iter)) != CMARK_EVENT_DONE) {
+        cmark_node* node;
+        cmark_node_type type;
+        const char* lit;
+        size_t lit_len;
+
+        if (ev != CMARK_EVENT_ENTER) {
+            continue;
         }
+        node = cmark_iter_get_node(iter);
+        type = cmark_node_get_type(node);
+        if (type != CMARK_NODE_TEXT && type != CMARK_NODE_CODE) {
+            continue;
+        }
+        lit = cmark_node_get_literal(node);
+        if (!lit) {
+            continue;
+        }
+        lit_len = strlen(lit);
+        if (len + lit_len >= size) {
+            lit_len = size - 1 - len;
+        }
+        memcpy(buf + len, lit, lit_len);
+        len += lit_len;
     }
-    
-    if (hcount == 0) {
-        entry->toc = arena_strdup(arena, "");
-        return;
+    cmark_iter_free(iter);
+    buf[len] = '\0';
+}
+
+/* Collect headings (level, plain text, slug id) from the markdown AST.
+ * Returns the number of headings found (capped at max). */
+static size_t collect_headings(const char* md_source, heading_t* headings,
+                               size_t max, arena_t* arena)
+{
+    cmark_node* doc;
+    cmark_iter* iter;
+    cmark_event_type ev = CMARK_EVENT_NONE;
+    size_t count = 0;
+
+    doc = cmark_parse_document(md_source, strlen(md_source), 0);
+    if (!doc) {
+        return 0;
     }
-    
-    /* Fix duplicate IDs */
+
+    iter = cmark_iter_new(doc);
+    while ((ev = cmark_iter_next(iter)) != CMARK_EVENT_DONE &&
+           count < max) {
+        cmark_node* node;
+        char text[512];
+        size_t id_size;
+
+        if (ev != CMARK_EVENT_ENTER) {
+            continue;
+        }
+        node = cmark_iter_get_node(iter);
+        if (cmark_node_get_type(node) != CMARK_NODE_HEADING) {
+            continue;
+        }
+
+        collect_heading_text(node, text, sizeof(text));
+        id_size = strlen(text) + 32;
+
+        headings[count].level = cmark_node_get_heading_level(node);
+        headings[count].text = arena_strdup(arena, text);
+        headings[count].id = arena_alloc(arena, id_size);
+        if (!headings[count].text || !headings[count].id) {
+            break;
+        }
+        slugify(headings[count].id, text, id_size);
+        if (headings[count].id[0] == '\0') {
+            /* Heading with no slugifiable chars (e.g. punctuation only) */
+            snprintf(headings[count].id, id_size,
+                     "heading-%lu", (unsigned long)(count + 1));
+        }
+        count++;
+    }
+
+    if (ev != CMARK_EVENT_DONE) {
+        fprintf(stderr, "Warning: heading limit (%lu) reached, TOC truncated\n",
+                (unsigned long)max);
+    }
+
+    cmark_iter_free(iter);
+    cmark_node_free(doc);
+    return count;
+}
+
+/* Give duplicate heading ids numeric suffixes */
+static void dedup_heading_ids(heading_t* headings, size_t hcount)
+{
+    size_t i;
+
     for (i = 0; i < hcount; i++) {
-        size_t id_buf_size = strlen(headings[i].text) * 2 + 32;
+        size_t id_buf_size = strlen(headings[i].text) + 32;
         int suffix = 1;
         char base_id[256];
-        
+
         strncpy(base_id, headings[i].id, sizeof(base_id) - 1);
         base_id[sizeof(base_id) - 1] = '\0';
-        
+
         while (1) {
             size_t k;
             int dup = 0;
@@ -501,82 +519,126 @@ void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
                      base_id, ++suffix);
         }
     }
-    
-    /* Build modified HTML with id attributes */
-    modified = arena_alloc(arena, html_len + extra_len + 1);
-    if (!modified) {
-        entry->toc = arena_strdup(arena, "");
-        return;
+}
+
+/* Inject id attributes into the rendered HTML headings.
+ * Headings are matched positionally: the i-th <hN> tag in the HTML
+ * corresponds to the i-th heading in the AST (same source, same order). */
+static char* inject_heading_ids(const char* html, heading_t* headings,
+                                size_t hcount, arena_t* arena)
+{
+    size_t html_len = strlen(html);
+    size_t extra = 0;
+    size_t idx = 0;
+    size_t i;
+    size_t mod_offset = 0;
+    const char* p;
+    const char* last;
+    char* modified;
+
+    for (i = 0; i < hcount; i++) {
+        extra += strlen(headings[i].id) + 16;
     }
-    
+
+    modified = arena_alloc(arena, html_len + extra + 1);
+    if (!modified) {
+        return NULL;
+    }
+
     last = html;
-    hcount = 0;
-    
-    for (p = html; *p; ) {
+    for (p = html; *p && idx < hcount; ) {
         if (*p == '<' && p[1] == 'h' && p[2] >= '1' && p[2] <= '6' &&
             (p[3] == '>' || isspace((unsigned char)p[3]))) {
-            int level = p[2] - '0';
             const char* tag_end = strchr(p, '>');
-            const char* close_tag_start;
-            char close_tag[8];
             size_t segment;
-            
+
             if (!tag_end) {
                 break;
             }
-            
-            snprintf(close_tag, sizeof(close_tag), "</h%d>", level);
-            close_tag_start = strstr(tag_end + 1, close_tag);
-            if (!close_tag_start) {
-                break;
-            }
-            
+
             /* Copy everything before this heading tag */
             segment = p - last;
             memcpy(modified + mod_offset, last, segment);
             mod_offset += segment;
-            
+
             /* Write opening tag with id */
             if (p[3] == '>') {
                 mod_offset += snprintf(modified + mod_offset,
-                                       html_len + extra_len - mod_offset,
-                                       "<h%d id=\"%s\">",
-                                       level, headings[hcount].id);
+                                       html_len + extra - mod_offset,
+                                       "<h%c id=\"%s\">", p[2],
+                                       headings[idx].id);
             } else {
                 size_t tag_len = tag_end - p + 1;
                 memcpy(modified + mod_offset, p, tag_len - 1);
                 mod_offset += tag_len - 1;
                 mod_offset += snprintf(modified + mod_offset,
-                                       html_len + extra_len - mod_offset,
-                                       " id=\"%s\">",
-                                       headings[hcount].id);
+                                       html_len + extra - mod_offset,
+                                       " id=\"%s\">", headings[idx].id);
             }
-            
+
             last = tag_end + 1;
-            p = close_tag_start + strlen(close_tag);
-            hcount++;
+            p = tag_end + 1;
+            idx++;
         } else {
             p++;
         }
     }
-    
+
     /* Copy remainder */
     strcpy(modified + mod_offset, last);
+    return modified;
+}
+
+/* Generate TOC from markdown headings and add id attributes */
+void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena,
+                      const char* md_source)
+{
+    heading_t headings[MAX_HEADINGS];
+    size_t hcount;
+    size_t i;
+    char* modified;
+    char* toc;
+    size_t toc_len;
+    size_t toc_offset = 0;
+    int prev_level = 0;
+
+    if (!entry->html_content || !md_source) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
+
+    hcount = collect_headings(md_source, headings, MAX_HEADINGS, arena);
+    if (hcount == 0) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
+
+    dedup_heading_ids(headings, hcount);
+
+    modified = inject_heading_ids(entry->html_content, headings, hcount,
+                                  arena);
+    if (!modified) {
+        entry->toc = arena_strdup(arena, "");
+        return;
+    }
     entry->html_content = modified;
-    
-    /* Build TOC HTML */
-    toc_len = hcount * 256 + 128;
+
+    /* Build TOC HTML, sized from actual content */
+    toc_len = 128;
+    for (i = 0; i < hcount; i++) {
+        toc_len += strlen(headings[i].text) + strlen(headings[i].id) + 64;
+    }
     toc = arena_alloc(arena, toc_len);
     if (!toc) {
         entry->toc = arena_strdup(arena, "");
         return;
     }
-    
+
     toc_offset = snprintf(toc, toc_len, "<nav class=\"toc\">\n<ul>\n");
-    
+
     for (i = 0; i < hcount; i++) {
         int level = headings[i].level;
-        
+
         if (i == 0) {
             toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
                                    "<li>");
@@ -600,13 +662,13 @@ void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
             toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
                                    "</li>\n<li>");
         }
-        
+
         toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
                                "<a href=\"#%s\">%s</a>",
                                headings[i].id, headings[i].text);
         prev_level = level;
     }
-    
+
     toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
                            "</li>\n");
     while (prev_level > 1) {
@@ -616,6 +678,6 @@ void cxo_generate_toc(cxo_entry_t* entry, arena_t* arena)
     }
     toc_offset += snprintf(toc + toc_offset, toc_len - toc_offset,
                            "</ul>\n</nav>\n");
-    
+
     entry->toc = toc;
 }
