@@ -143,40 +143,28 @@ int render_tag_page(cxo_context_t* ctx, arena_t* arena,
             return CXO_ERR_NOMEM;
         }
         snprintf(page_url, url_size, "/%s/%s.html", subdir, tag);
-        html = replace_var(arena, tmpl, "meta_tags",
-                           build_site_meta_tags(ctx, arena, lang, page_url));
+
+        {
+            const cxo_var_t vars[] = {
+                { "meta_tags", build_site_meta_tags(ctx, arena, lang,
+                                                    page_url) },
+                { "lang", lang },
+                { "site_title", escape_attr(arena, ctx->site_title) },
+                { "site_description",
+                  escape_attr(arena, ctx->site_description) },
+                { "tag_name", escape_attr(arena, tag) },
+                { "entry_list", list_html },
+                { "hotreload", hotreload_enabled() ? hotreload_script : "" },
+            };
+
+            html = replace_vars(arena, tmpl, vars,
+                                sizeof(vars) / sizeof(vars[0]));
+        }
     }
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "lang", lang);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "site_title",
-                       escape_attr(arena, ctx->site_title));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "site_description",
-                       escape_attr(arena, ctx->site_description));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "tag_name", escape_attr(arena, tag));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "entry_list", list_html);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "hotreload",
-                       hotreload_enabled() ? hotreload_script : "");
-    if (!html) {
-        html = "";
-    }
-    
+
     snprintf(path, sizeof(path), "%s/%s/%s.html", output_dir, subdir, tag);
     return write_html(path, html);
 }
@@ -295,44 +283,29 @@ static int render_archive_page(cxo_context_t* ctx, arena_t* arena,
         } else {
             snprintf(page_url, sizeof(page_url), "/%s%s/", prefix, year);
         }
-        html = replace_var(arena, tmpl, "meta_tags",
-                           build_site_meta_tags(ctx, arena, lang, page_url));
+
+        {
+            const cxo_var_t vars[] = {
+                { "meta_tags", build_site_meta_tags(ctx, arena, lang,
+                                                    page_url) },
+                { "lang", lang },
+                { "site_title", escape_attr(arena, ctx->site_title) },
+                { "site_description",
+                  escape_attr(arena, ctx->site_description) },
+                { "archive_title", title },
+                { "tag_name", title },
+                { "entry_list", list_html },
+                { "hotreload", hotreload_enabled() ? hotreload_script : "" },
+            };
+
+            html = replace_vars(arena, tmpl, vars,
+                                sizeof(vars) / sizeof(vars[0]));
+        }
     }
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "lang", lang);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "site_title",
-                       escape_attr(arena, ctx->site_title));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "site_description",
-                       escape_attr(arena, ctx->site_description));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "archive_title", title);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "tag_name", title);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "entry_list", list_html);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "hotreload",
-                       hotreload_enabled() ? hotreload_script : "");
-    if (!html) {
-        html = "";
-    }
-    
+
     return write_html(path, html);
 }
 

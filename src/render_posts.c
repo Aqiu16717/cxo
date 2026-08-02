@@ -245,77 +245,31 @@ static char* build_tag_links(cxo_entry_t* entry, arena_t* arena)
 static char* generate_html(cxo_entry_t* entry, const cxo_context_t* ctx,
                            arena_t* arena, const char* tmpl)
 {
-    char* html;
-    char* lang_switch;
-    char* tag_links;
     const char* description;
-    
-    lang_switch = build_lang_switch(arena, entry);
-    tag_links = build_tag_links(entry, arena);
+
     description = entry->description ? entry->description : "";
-    
-    html = replace_var(arena, tmpl, "title", escape_attr(arena, entry->title));
-    if (!html) {
-        return NULL;
+
+    {
+        const cxo_var_t vars[] = {
+            { "title", escape_attr(arena, entry->title) },
+            { "date", escape_attr(arena, entry->date) },
+            { "lang", entry->lang },
+            { "content", entry->html_content },
+            { "nav_lang_switch", build_lang_switch(arena, entry) },
+            { "tags", build_tag_links(entry, arena) },
+            { "description", escape_attr(arena, description) },
+            { "prev", build_nav_link(arena, entry->prev, "prev") },
+            { "next", build_nav_link(arena, entry->next, "next") },
+            { "site_title", escape_attr(arena, ctx->site_title) },
+            { "site_description", escape_attr(arena, ctx->site_description) },
+            { "toc", entry->toc ? entry->toc : "" },
+            { "meta_tags", build_post_meta_tags(entry, ctx, arena) },
+            { "hotreload", hotreload_enabled() ? hotreload_script : "" },
+        };
+
+        return replace_vars(arena, tmpl, vars,
+                            sizeof(vars) / sizeof(vars[0]));
     }
-    html = replace_var(arena, html, "date", escape_attr(arena, entry->date));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "lang", entry->lang);
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "content", entry->html_content);
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "nav_lang_switch", lang_switch);
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "tags", tag_links);
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "description",
-                       escape_attr(arena, description));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "prev",
-                       build_nav_link(arena, entry->prev, "prev"));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "next",
-                       build_nav_link(arena, entry->next, "next"));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "site_title",
-                       escape_attr(arena, ctx->site_title));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "site_description",
-                       escape_attr(arena, ctx->site_description));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "toc", entry->toc ? entry->toc : "");
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "meta_tags",
-                       build_post_meta_tags(entry, ctx, arena));
-    if (!html) {
-        return NULL;
-    }
-    html = replace_var(arena, html, "hotreload",
-                       hotreload_enabled() ? hotreload_script : "");
-    
-    return html;
 }
 
 /* Write HTML file */

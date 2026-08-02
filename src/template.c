@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include "renderer_internal.h"
 
 /* Hot reload script - injected when CXO_HOTRELOAD=1 */
@@ -231,76 +232,123 @@ static const char* fallback_template =
     "</body>\n"
     "</html>\n";
 
-/* Count occurrences */
-static size_t count_substr(const char* str, const char* sub)
+/* Return pointer to the "}}" closing a {{key}} starting at s, or NULL */
+static const char* parse_var_key(const char* s)
 {
-    size_t count;
-    size_t sub_len;
-    char* p;
-    
-    count = 0;
-    sub_len = strlen(sub);
-    p = (char*)str;
-    
-    while ((p = strstr(p, sub)) != NULL) {
-        count++;
-        p += sub_len;
+    const char* p = s;
+
+    if (!isalnum((unsigned char)*p) && *p != '_') {
+        return NULL;
     }
-    return count;
+    while (isalnum((unsigned char)*p) || *p == '_') {
+        p++;
+    }
+    if (p[0] == '}' && p[1] == '}') {
+        return p;
+    }
+    return NULL;
 }
 
-/* Replace occurrences */
-static void do_replace(char* result, const char* tmpl,
-                       const char* placeholder, const char* value)
+/* Look up a variable value; NULL if the key is not in the table */
+static const char* var_lookup(const cxo_var_t* vars, size_t var_count,
+                              const char* key, size_t key_len)
 {
-    char* pos;
-    char* last;
-    size_t ph_len;
-    
-    ph_len = strlen(placeholder);
-    pos = (char*)tmpl;
-    last = (char*)tmpl;
-    result[0] = '\0';
-    
-    while ((pos = strstr(pos, placeholder)) != NULL) {
-        strncat(result, last, pos - last);
-        strcat(result, value);
-        pos += ph_len;
-        last = pos;
+    size_t i;
+
+    for (i = 0; i < var_count; i++) {
+        if (strlen(vars[i].key) == key_len &&
+            strncmp(vars[i].key, key, key_len) == 0) {
+            return vars[i].value ? vars[i].value : "";
+        }
     }
-    strcat(result, last);
+    return NULL;
 }
 
-/* Replace template variable */
-char* replace_var(arena_t* arena, const char* tmpl,
-                         const char* name, const char* value)
+/* Warn about an unknown template variable, once per key per process */
+static void warn_unknown_var(const char* key, size_t key_len)
 {
-    char placeholder[64];
-    size_t ph_len;
-    size_t count;
-    size_t result_len;
+    static char warned[16][64];
+    static size_t warned_count;
+    size_t i;
+
+    if (key_len == 0 || key_len >= 64) {
+        return;
+    }
+    for (i = 0; i < warned_count; i++) {
+        if (strncmp(warned[i], key, key_len) == 0 && warned[i][key_len] == '\0') {
+            return;
+        }
+    }
+    if (warned_count < 16) {
+        memcpy(warned[warned_count], key, key_len);
+        warned[warned_count][key_len] = '\0';
+        warned_count++;
+    }
+    fprintf(stderr, "Warning: unknown template variable {{%.*s}}\n",
+            (int)key_len, key);
+}
+
+/* Substitute all {{key}} placeholders in one scan.
+ * Unknown variables are kept verbatim and reported once per key.
+ * Inserted values are never re-scanned. */
+char* replace_vars(arena_t* arena, const char* tmpl,
+                   const cxo_var_t* vars, size_t var_count)
+{
+    const char* p;
     char* result;
-    
-    snprintf(placeholder, sizeof(placeholder), "{{%s}}", name);
-    ph_len = strlen(placeholder);
-    value = value ? value : "";
-    
-    count = count_substr(tmpl, placeholder);
-    if (count == 0) {
-        return arena_strdup(arena, tmpl);
+    char* w;
+    size_t len;
+
+    /* Pass 1: compute result length */
+    len = 0;
+    for (p = tmpl; *p; ) {
+        if (p[0] == '{' && p[1] == '{') {
+            const char* end = parse_var_key(p + 2);
+            if (end) {
+                size_t key_len = end - (p + 2);
+                const char* val = var_lookup(vars, var_count, p + 2, key_len);
+                if (val) {
+                    len += strlen(val);
+                } else {
+                    warn_unknown_var(p + 2, key_len);
+                    len += key_len + 4;
+                }
+                p = end + 2;
+                continue;
+            }
+        }
+        len++;
+        p++;
     }
-    
-    {
-        size_t value_len = strlen(value);
-        size_t extra = (value_len > ph_len) ? (value_len - ph_len) : 0;
-        result_len = strlen(tmpl) + count * extra + 1;
-    }
-    result = arena_alloc(arena, result_len);
+
+    result = arena_alloc(arena, len + 1);
     if (!result) {
         return NULL;
     }
-    
-    do_replace(result, tmpl, placeholder, value);
+
+    /* Pass 2: emit */
+    w = result;
+    for (p = tmpl; *p; ) {
+        if (p[0] == '{' && p[1] == '{') {
+            const char* end = parse_var_key(p + 2);
+            if (end) {
+                size_t key_len = end - (p + 2);
+                const char* val = var_lookup(vars, var_count, p + 2, key_len);
+                if (val) {
+                    size_t val_len = strlen(val);
+                    memcpy(w, val, val_len);
+                    w += val_len;
+                } else {
+                    memcpy(w, p, key_len + 4);
+                    w += key_len + 4;
+                }
+                p = end + 2;
+                continue;
+            }
+        }
+        *w++ = *p++;
+    }
+    *w = '\0';
     return result;
 }
 

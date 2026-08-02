@@ -24,8 +24,15 @@ const char* get_output_subdir(const char* lang);
 
 /* template.c */
 extern const char* hotreload_script;
-char* replace_var(arena_t* arena, const char* tmpl,
-                  const char* name, const char* value);
+
+/* Template variable for single-pass substitution */
+typedef struct {
+    const char* key;
+    const char* value;
+} cxo_var_t;
+
+char* replace_vars(arena_t* arena, const char* tmpl,
+                   const cxo_var_t* vars, size_t var_count);
 char* escape_attr(arena_t* arena, const char* src);
 char* load_template(arena_t* arena, const char* theme_path);
 char* load_tag_template(arena_t* arena, const char* theme_path);

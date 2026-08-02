@@ -335,40 +335,28 @@ static int render_index_page(cxo_context_t* ctx, arena_t* arena,
                          (unsigned long)page);
             }
         }
-        html = replace_var(arena, tmpl, "meta_tags",
-                           build_site_meta_tags(ctx, arena, lang, page_url));
+
+        {
+            const cxo_var_t vars[] = {
+                { "meta_tags", build_site_meta_tags(ctx, arena, lang,
+                                                    page_url) },
+                { "lang", lang },
+                { "site_title", escape_attr(arena, ctx->site_title) },
+                { "site_description",
+                  escape_attr(arena, ctx->site_description) },
+                { "entry_list", entry_list },
+                { "pagination", pagination },
+                { "hotreload", hotreload_enabled() ? hotreload_script : "" },
+            };
+
+            html = replace_vars(arena, tmpl, vars,
+                                sizeof(vars) / sizeof(vars[0]));
+        }
     }
     if (!html) {
         html = "";
     }
-    html = replace_var(arena, html, "lang", lang);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "site_title",
-                       escape_attr(arena, ctx->site_title));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "site_description",
-                       escape_attr(arena, ctx->site_description));
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "entry_list", entry_list);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "pagination", pagination);
-    if (!html) {
-        html = "";
-    }
-    html = replace_var(arena, html, "hotreload",
-                       hotreload_enabled() ? hotreload_script : "");
-    if (!html) {
-        html = "";
-    }
-    
+
     return write_html(path, html);
 }
 
