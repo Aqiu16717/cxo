@@ -35,7 +35,7 @@ else
 endif
 
 # Source files
-CXO_SRCS = src/main.c src/cmd_init.c src/cmd_serve.c src/cmd_deploy.c src/config.c src/renderer.c \
+CXO_SRCS = src/main.c src/cmd_build.c src/cmd_init.c src/cmd_serve.c src/cmd_deploy.c src/config.c src/renderer.c \
            src/path_util.c src/template.c src/render_posts.c src/render_index.c \
            src/render_taxonomy.c src/render_feeds.c \
            src/linker.c src/parser.c src/scanner.c src/context.c src/arena.c src/toml.c src/lang.c

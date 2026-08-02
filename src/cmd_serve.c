@@ -29,7 +29,10 @@
 #define DEFAULT_ROOT "public"
 #define BUFFER_SIZE 8192
 #define CXO_MAX_PATH 512
-#define MAX_WATCH_PATHS 32
+#define MAX_WATCH_PATHS 256
+
+/* External command functions */
+extern int cmd_build(void);
 
 /* Platform-specific defines */
 #ifndef MSG_NOSIGNAL
@@ -312,16 +315,60 @@ static int check_sse_client(int client)
 {
     char ping[] = ":ping\n\n";
     cxo_ssize_t sent;
-    
+
     if (client < 0) {
         return 0;
     }
-    
+
     sent = send(client, ping, strlen(ping), MSG_NOSIGNAL);
     if (sent < 0) {
         return 0;
     }
     return 1;
+}
+
+/* Set of connected SSE clients (multiple browser tabs) */
+#define MAX_SSE_CLIENTS 8
+
+typedef struct {
+    int fds[MAX_SSE_CLIENTS];
+    size_t count;
+} sse_set_t;
+
+/* Check whether a fd is a registered SSE client */
+static int sse_contains(const sse_set_t* set, int fd)
+{
+    size_t i;
+
+    for (i = 0; i < set->count; i++) {
+        if (set->fds[i] == fd) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Remove the fd at index, closing the socket */
+static void sse_remove_at(sse_set_t* set, size_t index)
+{
+    cxo_close_socket(set->fds[index]);
+    if (index + 1 < set->count) {
+        memmove(set->fds + index, set->fds + index + 1,
+                (set->count - index - 1) * sizeof(set->fds[0]));
+    }
+    set->count--;
+}
+
+/* Register a new SSE client; evicts the oldest when full */
+static void sse_add(sse_set_t* set, int fd)
+{
+    if (sse_contains(set, fd)) {
+        return;
+    }
+    if (set->count >= MAX_SSE_CLIENTS) {
+        sse_remove_at(set, 0);
+    }
+    set->fds[set->count++] = fd;
 }
 
 /* Parse HTTP request line, returns 0 on success */
@@ -414,7 +461,7 @@ static void serve_request_path(int client, const char* root,
 }
 
 /* Handle single HTTP request */
-static void handle_request(int client, const char* root, int* sse_client)
+static void handle_request(int client, const char* root, sse_set_t* sse_clients)
 {
     char buf[BUFFER_SIZE];
     char method[16];
@@ -422,28 +469,25 @@ static void handle_request(int client, const char* root, int* sse_client)
     char decoded_uri[CXO_MAX_PATH];
     cxo_ssize_t n;
     int is_head;
-    
+
     n = recv(client, buf, sizeof(buf) - 1, 0);
     if (n <= 0) {
         return;
     }
     buf[n] = '\0';
-    
+
     if (parse_request_line(buf, method, uri, &is_head) != 0) {
         send_response(client, 400, "Bad Request", "text/html",
                       "<h1>400 Bad Request</h1>", 24);
         return;
     }
-    
+
     url_decode(decoded_uri, uri, sizeof(decoded_uri));
-    
+
     /* Check for SSE endpoint */
     if (strcmp(decoded_uri, "/__cxo_reload") == 0) {
         send_sse_headers(client);
-        if (*sse_client >= 0 && *sse_client != client) {
-            cxo_close_socket(*sse_client);
-        }
-        *sse_client = client;
+        sse_add(sse_clients, client);
         return;
     }
     
@@ -568,8 +612,16 @@ static void send_directory_listing(int client, const char* root, const char* uri
 static void add_watch_path(const char* path)
 {
     struct stat st;
-    
+
     if (watch_count >= MAX_WATCH_PATHS) {
+        static int warned = 0;
+        if (!warned) {
+            fprintf(stderr,
+                    "Warning: watch list full (%d paths), "
+                    "some files will not trigger reload\n",
+                    MAX_WATCH_PATHS);
+            warned = 1;
+        }
         return;
     }
     
@@ -653,57 +705,17 @@ static int check_file_changes(void)
     return changed;
 }
 
-/* Run build command */
+/* Run build in-process (no fork/PATH dependency) */
 static int run_build(void)
 {
-#ifdef _WIN32
-    const char* argv[] = {"cxo", "build", NULL};
-    int ret;
-    
     printf("\n[reload] Rebuilding...\n");
-    
-    ret = cxo_spawnvp(CXO_P_WAIT, "cxo", argv);
-    if (ret == -1) {
-        const char* argv2[] = {".\\cxo.exe", "build", NULL};
-        ret = cxo_spawnvp(CXO_P_WAIT, ".\\cxo.exe", argv2);
-    }
-    
-    if (ret == 0) {
+
+    if (cmd_build() == CXO_OK) {
         printf("[reload] Build complete\n\n");
         return 0;
-    } else {
-        printf("[reload] Build failed\n\n");
-        return -1;
     }
-#else
-    pid_t pid;
-    int status;
-    
-    printf("\n[reload] Rebuilding...\n");
-    
-    pid = fork();
-    if (pid < 0) {
-        perror("fork");
-        return -1;
-    }
-    
-    if (pid == 0) {
-        execlp("cxo", "cxo", "build", NULL);
-        execl("./cxo", "./cxo", "build", NULL);
-        fprintf(stderr, "Error: cxo not found in PATH or current directory\n");
-        _exit(1);
-    }
-    
-    waitpid(pid, &status, 0);
-    
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-        printf("[reload] Build complete\n\n");
-        return 0;
-    } else {
-        printf("[reload] Build failed\n\n");
-        return -1;
-    }
-#endif
+    printf("[reload] Build failed\n\n");
+    return -1;
 }
 
 /* Create and bind server socket */
@@ -761,40 +773,46 @@ static void setup_signals(void)
 }
 
 /* Handle a single accepted client connection */
-static void handle_client(int client_fd, int* sse_client)
+static void handle_client(int client_fd, sse_set_t* sse_clients)
 {
-    handle_request(client_fd, DEFAULT_ROOT, sse_client);
-    if (*sse_client != client_fd) {
+    handle_request(client_fd, DEFAULT_ROOT, sse_clients);
+    if (!sse_contains(sse_clients, client_fd)) {
         cxo_close_socket(client_fd);
     }
 }
 
 /* Check for file changes and trigger reload */
-static void maybe_reload(int* sse_client, time_t* last_check)
+static void maybe_reload(sse_set_t* sse_clients, time_t* last_check)
 {
+    size_t i;
     time_t now;
-    
+
     time(&now);
     if (now - *last_check < 1) {
         return;
     }
     *last_check = now;
-    
-    if (*sse_client >= 0 && !check_sse_client(*sse_client)) {
-        cxo_close_socket(*sse_client);
-        *sse_client = -1;
+
+    /* Prune disconnected SSE clients */
+    for (i = sse_clients->count; i > 0; i--) {
+        if (!check_sse_client(sse_clients->fds[i - 1])) {
+            sse_remove_at(sse_clients, i - 1);
+        }
     }
-    
+
     if (check_file_changes()) {
         init_file_watching();
-        if (run_build() == 0 && *sse_client >= 0) {
-            send_reload_event(*sse_client);
+        if (run_build() == 0) {
+            for (i = 0; i < sse_clients->count; i++) {
+                send_reload_event(sse_clients->fds[i]);
+            }
         }
     }
 }
 
 /* Main server select loop */
-static void server_loop(cxo_socket_t server_fd, int rebuild, int* sse_client)
+static void server_loop(cxo_socket_t server_fd, int rebuild,
+                        sse_set_t* sse_clients)
 {
     time_t last_check = 0;
     
@@ -823,7 +841,7 @@ static void server_loop(cxo_socket_t server_fd, int rebuild, int* sse_client)
         }
         
         if (rebuild) {
-            maybe_reload(sse_client, &last_check);
+            maybe_reload(sse_clients, &last_check);
         }
         
         if (ret == 0) {
@@ -845,7 +863,7 @@ static void server_loop(cxo_socket_t server_fd, int rebuild, int* sse_client)
             continue;
         }
         
-        handle_client(client_fd, sse_client);
+        handle_client(client_fd, sse_clients);
     }
 }
 
@@ -854,7 +872,8 @@ int cmd_serve(int port, int rebuild)
 {
     cxo_socket_t server_fd;
     struct stat st;
-    int sse_client = -1;
+    sse_set_t sse_clients = { { 0 }, 0 };
+    size_t i;
 #ifdef _WIN32
     WSADATA wsa_data;
     if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != 0) {
@@ -888,11 +907,11 @@ int cmd_serve(int port, int rebuild)
     }
     printf("Press Ctrl+C to stop\n\n");
     
-    server_loop(server_fd, rebuild, &sse_client);
-    
+    server_loop(server_fd, rebuild, &sse_clients);
+
     printf("\nShutting down server...\n");
-    if (sse_client >= 0) {
-        cxo_close_socket(sse_client);
+    for (i = 0; i < sse_clients.count; i++) {
+        cxo_close_socket(sse_clients.fds[i]);
     }
     cxo_close_socket(server_fd);
 #ifdef _WIN32
