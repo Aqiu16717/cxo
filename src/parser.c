@@ -280,6 +280,36 @@ static int cxo_parse_frontmatter(cxo_entry_t* entry, arena_t* arena,
     return CXO_OK;
 }
 
+/* Normalize date to zero-padded YYYY-MM-DD so strcmp-based sorting and
+ * archive grouping stay correct (e.g. "2026-3-1" -> "2026-03-01").
+ * Invalid dates warn and fall back to the default. */
+static void normalize_date(cxo_entry_t* entry, arena_t* arena)
+{
+    int year;
+    int month;
+    int day;
+    char normalized[16];
+
+    if (!entry->date) {
+        return;
+    }
+
+    if (sscanf(entry->date, "%d-%d-%d", &year, &month, &day) != 3 ||
+        year < 1970 || year > 9999 ||
+        month < 1 || month > 12 || day < 1 || day > 31) {
+        fprintf(stderr, "Warning: Invalid date '%s' in entry %s, "
+                "using 1970-01-01\n", entry->date, entry->id);
+        entry->date = arena_strdup(arena, "1970-01-01");
+        return;
+    }
+
+    snprintf(normalized, sizeof(normalized), "%04d-%02d-%02d",
+             year, month, day);
+    if (strcmp(normalized, entry->date) != 0) {
+        entry->date = arena_strdup(arena, normalized);
+    }
+}
+
 /* Set fallback values for fields the renderer relies on */
 static void set_entry_defaults(cxo_entry_t* entry, arena_t* arena)
 {
@@ -331,6 +361,7 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     }
     
     /* Set defaults */
+    normalize_date(entry, arena);
     set_entry_defaults(entry, arena);
     if (!entry->id) {
         entry->id = entry->slug;
