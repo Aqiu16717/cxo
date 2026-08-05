@@ -17,6 +17,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <dirent.h>
+#ifdef _WIN32
+#include <process.h>
+#endif
 #include "../include/cxo.h"
 #include "../src/renderer_internal.h"
 
@@ -24,8 +27,6 @@ extern int cmd_build(void);
 
 static int failures = 0;
 static arena_t* g_arena;
-
-#define WORK_DIR "tests/.fixture_work"
 
 #define CHECK(cond, name) do { \
     if (cond) { \
@@ -42,13 +43,42 @@ static int file_exists(const char* path)
     return stat(path, &st) == 0;
 }
 
+/* Read a file of any size into the arena (sized by stat, no cap) */
 static int file_contains(const char* path, const char* needle)
 {
-    char* content = read_file_to_arena(g_arena, path);
-    return content && strstr(content, needle) != NULL;
+    struct stat st;
+    FILE* fp;
+    char* buf;
+    size_t n;
+    int found;
+
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return 0;
+    }
+    fp = fopen(path, "rb");
+    if (!fp) {
+        return 0;
+    }
+    buf = arena_alloc(g_arena, (size_t)st.st_size + 1);
+    if (!buf) {
+        fclose(fp);
+        return 0;
+    }
+    n = fread(buf, 1, (size_t)st.st_size, fp);
+    fclose(fp);
+    buf[n] = '\0';
+    found = strstr(buf, needle) != NULL;
+    return found;
 }
 
-/* Recursively delete a directory tree */
+/* lstat where available so symlinks are never followed */
+#ifdef _WIN32
+#define test_lstat stat
+#else
+#define test_lstat lstat
+#endif
+
+/* Recursively delete a directory tree (does not follow symlinks) */
 static void rm_tree(const char* path)
 {
     DIR* dir;
@@ -56,7 +86,7 @@ static void rm_tree(const char* path)
     struct stat st;
     char child[512];
 
-    if (stat(path, &st) != 0) {
+    if (test_lstat(path, &st) != 0) {
         return;
     }
     if (!S_ISDIR(st.st_mode)) {
@@ -69,7 +99,8 @@ static void rm_tree(const char* path)
         return;
     }
     while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_name[0] == '.' || strcmp(entry->d_name, "..") == 0) {
+        if (strcmp(entry->d_name, ".") == 0 ||
+            strcmp(entry->d_name, "..") == 0) {
             continue;
         }
         snprintf(child, sizeof(child), "%s/%s", path, entry->d_name);
@@ -79,21 +110,30 @@ static void rm_tree(const char* path)
     rmdir(path);
 }
 
-/* Copy fixtures into a fresh work dir and chdir into it */
-static int setup_workspace(void)
+/* Copy fixtures into a fresh per-process work dir and chdir into it */
+static int setup_workspace(char* work_dir, size_t size)
 {
-    rm_tree(WORK_DIR);
-    if (cxo_mkdir(WORK_DIR) != 0) {
+#ifdef _WIN32
+    int pid = _getpid();
+#else
+    int pid = getpid();
+#endif
+
+    snprintf(work_dir, size, "tests/.fixture_work_%d", pid);
+    rm_tree(work_dir);
+    if (cxo_mkdir(work_dir) != 0) {
         return -1;
     }
-    if (CXO_IS_ERR(copy_dir_recursive("tests/fixtures", WORK_DIR))) {
+    if (CXO_IS_ERR(copy_dir_recursive("tests/fixtures", work_dir))) {
+        rm_tree(work_dir);
         return -1;
     }
-    return chdir(WORK_DIR);
+    return chdir(work_dir);
 }
 
 int main(void)
 {
+    char work_dir[128];
     int rc;
 
     printf("Running fixture integration test...\n\n");
@@ -104,7 +144,7 @@ int main(void)
         return 1;
     }
 
-    if (setup_workspace() != 0) {
+    if (setup_workspace(work_dir, sizeof(work_dir)) != 0) {
         fprintf(stderr, "FAIL: cannot set up fixture workspace\n");
         return 1;
     }
@@ -121,10 +161,13 @@ int main(void)
     CHECK(file_exists("public/en/rss.xml"), "en RSS exists");
     CHECK(file_exists("public/sitemap.xml"), "sitemap exists");
     CHECK(file_exists("public/asset.txt"), "static asset copied");
+    CHECK(file_exists("public/.well-known/asset.txt"),
+          "static dotfile copied");
 
     /* Bilingual routing and linking */
     CHECK(file_contains("public/posts/hello.html",
-                        "https://fixture.example/posts/hello.html"),
+                        "og:url\" content=\""
+                        "https://fixture.example/posts/hello.html\""),
           "zh canonical og:url (no lang prefix)");
     CHECK(file_contains("public/en/posts/hello.html",
                         "https://fixture.example/en/posts/hello.html"),
@@ -169,7 +212,7 @@ int main(void)
 
     /* Cleanup */
     if (chdir("../..") == 0) {
-        rm_tree(WORK_DIR);
+        rm_tree(work_dir);
     }
     arena_destroy(g_arena);
 

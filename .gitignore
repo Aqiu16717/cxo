@@ -58,6 +58,9 @@ dkms.conf
 test_*
 !test_*.c
 
+# Fixture test work directories
+tests/.fixture_work*/
+
 # Generated site output
 public/
 ROADMAP.md

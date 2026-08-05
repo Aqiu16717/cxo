@@ -93,7 +93,7 @@ int copy_dir_recursive(const char* src, const char* dst)
         char dst_path[MAX_OUTPUT_PATH];
         int n;
         
-        if (entry->d_name[0] == '.' ||
+        if (strcmp(entry->d_name, ".") == 0 ||
             strcmp(entry->d_name, "..") == 0) {
             continue;
         }
