@@ -71,3 +71,8 @@ task_plan.md
 findings.md
 progress.md
 .planning/
+
+# Agent skills installed via npx skills (local-only tooling)
+.agents/
+.claude/
+skills-lock.json
