@@ -96,6 +96,9 @@ static int create_entry_from_file(cxo_context_t* ctx, arena_t* arena,
     
     entry->lang = arena_strdup(arena, lang);
     entry->slug = slug;
+    /* id defaults to the slug and shares its pointer; the parser replaces
+     * id (never mutates it) when frontmatter provides one. Arena lifetime
+     * makes the shared pointer safe. */
     entry->id = slug;
     entry->src_path = arena_strdup(arena, fullpath);
     

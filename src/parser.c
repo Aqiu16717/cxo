@@ -391,12 +391,10 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
                 filepath ? filepath : entry->src_path);
     }
     
-    /* Set defaults */
+    /* Set defaults (id is always set by the scanner, possibly
+     * overridden by frontmatter above) */
     normalize_date(entry, arena);
     set_entry_defaults(entry, arena);
-    if (!entry->id) {
-        entry->id = entry->slug;
-    }
     
     /* Convert markdown to HTML using libcmark */
     html = cmark_markdown_to_html(body_start, strlen(body_start), 0);
