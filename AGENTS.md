@@ -318,6 +318,25 @@ path = "themes/default"
 
 If `config.toml` is missing or unparsable, hardcoded defaults are used and execution continues.
 
+### Runtime Switches and Precedence
+
+Two switches live outside `config.toml` as environment variables, intended
+for CI and the dev server rather than site configuration:
+
+| Variable | Effect | Typical use |
+| :--- | :--- | :--- |
+| `CXO_DRAFT` | Include draft posts in the build | CI preview builds |
+| `CXO_HOTRELOAD` | Inject the hot-reload script into pages | Set automatically by `cxo serve -w` |
+
+Precedence rules:
+
+- Environment variables are standalone switches, **not** overrides of
+  config keys; `config.toml` has no equivalent keys for them.
+- A variable is "on" when set to any value (even empty); unset it to turn
+  it off.
+- `cxo serve -w` rebuilds in-process and sets `CXO_HOTRELOAD` itself; the
+  renderer reads it directly in the same process (no cross-process IPC).
+
 ## Error Codes
 
 Defined in `include/cxo_error.h`. Use `CXO_IS_ERR(rc)` to check for errors.

@@ -210,6 +210,15 @@ int main(void)
     CHECK(file_exists("public/posts/draft.html"),
           "draft included with CXO_DRAFT=1");
 
+    /* Hot reload injection contract: only when CXO_HOTRELOAD is set */
+    CHECK(!file_contains("public/posts/hello.html", "__cxo_reload"),
+          "hotreload script absent by default");
+    cxo_setenv("CXO_HOTRELOAD", "1");
+    rc = cmd_build();
+    CHECK(rc == CXO_OK, "hotreload-mode build succeeds");
+    CHECK(file_contains("public/posts/hello.html", "__cxo_reload"),
+          "hotreload script injected with CXO_HOTRELOAD=1");
+
     /* Cleanup */
     if (chdir("../..") == 0) {
         rm_tree(work_dir);
