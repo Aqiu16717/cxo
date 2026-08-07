@@ -18,10 +18,10 @@ P0 与 P1 项已全部完成。修复条目如下：
 | §1.4 解析失败段错误 | ✅ 已修复 | 新增 `set_entry_defaults()`，在文件不可读与 cmark 解析失败两条路径上统一设置安全默认值（空 `html_content`/`toc`、`Untitled`、`1970-01-01`）。验证：同一不可读文章从 SIGSEGV 变为正常渲染 + rc=1 报错（commit `8e5a7f0`） |
 | §2.1 renderer.c 巨型模块 | ✅ 已修复 | 2352 → 112 行（仅留 `cxo_render_site` 编排）；新模块 template/render_posts/render_index/render_taxonomy/render_feeds/path_util + 内部头 `renderer_internal.h`；纯搬迁无逻辑改动，产物字节级一致（commit `b096ac2`） |
 | §2.2 语言二分法硬编码 | ✅ 已修复 | `cxo_lang_t` 语言描述表（code/prefix/locale/label）落地 `src/lang.c`，~20 处硬编码判断全部迁移；og:locale 硬编码问题随之解决（commit `2e656bd`） |
-| §2.3 双配置体系 | 🔲 未做 | config.toml 与环境变量并存、优先级未定义。评估后优先级低：当前只有两个环境变量开关，进程内重建后 CXO_HOTRELOAD 的 IPC 问题已自然消解 |
+| §2.3 双配置体系 | ✅ 已修复 | 环境变量开关（CXO_DRAFT/CXO_HOTRELOAD）的语义与优先级已在 AGENTS.md「Runtime Switches and Precedence」写明；fixture 测试锁定注入契约（commit `10c1bcc`）。三层配置体系未做——两个开关不值得，见正文注记 |
 | §2.4 命令分发 | ✅ 已修复 | `cxo_cmd_t` 命令表（name/alias/args/desc/run），help 由表生成，新增 `cxo s` 别名，支持 `-v`/`--version` 等虚线形式（commit `933e7fa`） |
-| §3.1 md_content 命名误导 | 🔲 未做 | 改名为 src_path 的建议仍开放（纯命名问题，低风险低收益） |
-| §3.2 id/slug 指针共享 | 🔲 未做 | parser 死代码与共享指针语义注释建议仍开放 |
+| §3.1 md_content 命名误导 | ✅ 已修复 | 改名 `src_path` 并修正注释（commit `dbc2221`） |
+| §3.2 id/slug 指针共享 | ✅ 已修复 | 删除 parser 死代码，在 scanner 赋值处注释共享语义与 arena 安全性（commit `70071c0`） |
 | §3.3 date 裸字符串 | ✅ 已修复 | 解析期归一化为零填充 `YYYY-MM-DD`（如 `2026-3-1` → `2026-03-01`），非法日期告警并回退默认值；排序/归档/RFC822 全部基于规范形式。采用规范化字符串方案而非 struct，同等正确性且无存储层改动（commit `5ffaec5`） |
 | §3.4 meta 标签截断 | ✅ 已修复 | meta 缓冲区改为按转义后长度在 arena 分配，截断类已消除（commit `5a6e6a2`）；TOC 标题数上限超限时已告警（`790491f`）；watch list 超限已告警（`b1d8e89`） |
 | §4 模板 13 次全串替换 | ✅ 已修复 | `replace_vars()` 变量表 + 单遍扫描；未知变量保留字面量并告警（拼写检测）；插入值不再被二次扫描（commit `4752a98`） |
