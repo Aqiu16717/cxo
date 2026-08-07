@@ -42,7 +42,7 @@ int main(void)
     for (size_t i = 0; i < ctx->count; i++) {
         cxo_entry_t* e = ctx->entries[i];
         printf("  [%lu] id=%s, lang=%s, slug=%s, path=%s\n",
-               i, e->id, e->lang, e->slug, e->md_content);
+               i, e->id, e->lang, e->slug, e->src_path);
     }
     
     if (ctx->count < 2) {
@@ -56,7 +56,7 @@ int main(void)
         cxo_entry_t* e = ctx->entries[i];
         char expected_path[256];
         
-        if (!e->id || !e->lang || !e->slug || !e->md_content) {
+        if (!e->id || !e->lang || !e->slug || !e->src_path) {
             printf("FAIL: Entry %lu has NULL fields\n", (unsigned long)i);
             arena_destroy(arena);
             return 1;
@@ -64,9 +64,9 @@ int main(void)
         
         snprintf(expected_path, sizeof(expected_path), "content/%s/%s.md",
                  e->lang, e->slug);
-        if (strcmp(e->md_content, expected_path) != 0) {
+        if (strcmp(e->src_path, expected_path) != 0) {
             printf("FAIL: Entry %lu path mismatch: expected %s, got %s\n",
-                   i, expected_path, e->md_content);
+                   i, expected_path, e->src_path);
             arena_destroy(arena);
             return 1;
         }

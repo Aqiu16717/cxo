@@ -368,30 +368,27 @@ int cxo_parse_markdown(cxo_entry_t* entry, arena_t* arena,
     char* body_start;
     char* html;
 
-    /* Read file if filepath provided, else use stored md_content as path */
+    /* Read file if filepath provided, else use stored src_path as path */
     if (filepath) {
         file_content = read_file(arena, filepath);
     } else {
-        file_content = read_file(arena, entry->md_content);
+        file_content = read_file(arena, entry->src_path);
     }
 
     if (!file_content) {
         fprintf(stderr, "Error: Cannot read file %s\n",
-                filepath ? filepath : entry->md_content);
+                filepath ? filepath : entry->src_path);
         /* Keep the entry renderable so downstream stages survive
          * a failed parse; the error is reported by the caller. */
         set_entry_defaults(entry, arena);
         return CXO_ERR_NOFILE;
     }
     
-    /* Keep original path, store content separately */
-    /* entry->md_content still holds the file path */
-    
     /* Parse frontmatter */
     body_start = file_content;
     if (cxo_parse_frontmatter(entry, arena, file_content, &body_start) != 0) {
         fprintf(stderr, "Warning: Failed to parse frontmatter in %s\n",
-                filepath ? filepath : entry->md_content);
+                filepath ? filepath : entry->src_path);
     }
     
     /* Set defaults */

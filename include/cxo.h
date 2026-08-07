@@ -43,7 +43,7 @@ typedef struct cxo_entry {
     char* date;             /* Publication date */
     char* slug;             /* URL path name */
     char* html_content;     /* Parsed HTML content */
-    char* md_content;       /* Raw markdown content (file path) */
+    char* src_path;         /* Path to the source markdown file */
     struct cxo_entry* peer; /* Pointer to translation in other language */
     int draft;              /* Draft flag: 1 = draft, 0 = published */
     char* description;      /* Post description/excerpt */

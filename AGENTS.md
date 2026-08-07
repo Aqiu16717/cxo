@@ -129,7 +129,7 @@ typedef struct cxo_entry {
     char* date;             /* YYYY-MM-DD */
     char* slug;             /* URL path segment */
     char* html_content;     /* libcmark output, with TOC ids injected */
-    char* md_content;       /* Original file path (not content) */
+    char* src_path;         /* Path to the source markdown file */
     struct cxo_entry* peer; /* Translation in other language, or NULL */
     int draft;              /* 1 = draft, 0 = published */
     char* description;      /* Excerpt; auto-generated from HTML if absent */

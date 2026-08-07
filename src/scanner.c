@@ -97,7 +97,7 @@ static int create_entry_from_file(cxo_context_t* ctx, arena_t* arena,
     entry->lang = arena_strdup(arena, lang);
     entry->slug = slug;
     entry->id = slug;
-    entry->md_content = arena_strdup(arena, fullpath);
+    entry->src_path = arena_strdup(arena, fullpath);
     
     ctx->entries[ctx->count++] = entry;
     return CXO_OK;
