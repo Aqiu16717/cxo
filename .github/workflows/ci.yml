@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.compiler }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - gcc
+          - clang
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain versions
+        run: |
+          ${{ matrix.compiler }} --version
+          make --version
+
+      - name: Verify embedded sources
+        run: test -f src/cmark/cmark.c && test -f src/toml.c
+
+      - name: Build and test
+        run: make ci CC=${{ matrix.compiler }}
+
+      - name: Run CLI smoke tests
+        run: |
+          ./cxo version
+          ./cxo help
+          ./cxo build
+
+  macos:
+    name: macOS (clang)
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain versions
+        run: |
+          clang --version
+          make --version
+
+      - name: Verify embedded sources
+        run: test -f src/cmark/cmark.c && test -f src/toml.c
+
+      - name: Build and test
+        run: make ci CC=clang
+
+      - name: Run CLI smoke tests
+        run: |
+          ./cxo version
+          ./cxo help
+          ./cxo build
+
+  windows:
+    name: Windows (MinGW-w64 UCRT64)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Preserve LF line endings
+        shell: bash
+        run: git config --global core.autocrlf input
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-gcc
+
+      - name: Show toolchain versions
+        run: |
+          gcc --version
+          make --version
+
+      - name: Verify embedded sources
+        run: test -f src/cmark/cmark.c && test -f src/toml.c
+
+      - name: Build and test
+        run: make ci CC=gcc
+
+      - name: Run CLI smoke tests
+        run: |
+          ./cxo.exe version
+          ./cxo.exe help
+          ./cxo.exe build

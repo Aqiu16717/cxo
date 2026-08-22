@@ -14,22 +14,26 @@ else
     CC = gcc
 endif
 
-INCLUDES = -I. -I./include
-CFLAGS = -Wall -Wextra -std=c11 -O2
-LDFLAGS =
+CPPFLAGS ?=
+CPPFLAGS += -I. -I./include
+CFLAGS ?= -Wall -Wextra -std=c11 -O2
+LDFLAGS ?=
 
 # Installation prefix
 PREFIX ?= /usr/local
 BINDIR = $(PREFIX)/bin
 
 # Libraries (empty - all dependencies embedded)
-LIBS =
+LIBS ?=
 
 # Platform-specific commands
 ifeq ($(OS),Windows_NT)
+    EXEEXT = .exe
     RM = cmd /c del /f /q 2>nul
     RMDIR = cmd /c rmdir /s /q 2>nul
+    LIBS += -lws2_32
 else
+    EXEEXT =
     RM = rm -f
     RMDIR = rm -rf
 endif
@@ -53,11 +57,14 @@ OBJS = $(SRCS:.c=.o)
 DEPS = $(SRCS:.c=.d)
 
 # Targets
-TARGET = cxo
+TARGET = cxo$(EXEEXT)
 TEST_DIR = tests
-TEST_TARGETS = $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser \
-               $(TEST_DIR)/test_linker $(TEST_DIR)/test_config \
-               $(TEST_DIR)/test_renderer $(TEST_DIR)/test_fixture
+TEST_TARGETS = $(TEST_DIR)/test_scanner$(EXEEXT) \
+               $(TEST_DIR)/test_parser$(EXEEXT) \
+               $(TEST_DIR)/test_linker$(EXEEXT) \
+               $(TEST_DIR)/test_config$(EXEEXT) \
+               $(TEST_DIR)/test_renderer$(EXEEXT) \
+               $(TEST_DIR)/test_fixture$(EXEEXT)
 
 # cmark objects for tests
 CMARK_OBJS = $(filter-out src/cmark/main.o, $(CMARK_SRCS:.c=.o))
@@ -67,61 +74,66 @@ all: $(TARGET)
 
 # Build main executable
 $(TARGET): $(OBJS)
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+	$(CC) $(OBJS) -o $@ $(LDFLAGS) $(LIBS)
 
 # Compile source files with dependency generation
 %.o: %.c
-	$(CC) $(CFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
 # Include dependency files
 -include $(DEPS)
 
 # Test binaries
-$(TEST_DIR)/test_scanner: $(TEST_DIR)/test_scanner.c src/scanner.c src/context.c src/arena.c src/lang.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+$(TEST_DIR)/test_scanner$(EXEEXT): $(TEST_DIR)/test_scanner.c src/scanner.c src/context.c src/arena.c src/lang.c
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(TEST_DIR)/test_parser: $(TEST_DIR)/test_parser.c src/parser.c src/scanner.c \
+$(TEST_DIR)/test_parser$(EXEEXT): $(TEST_DIR)/test_parser.c src/parser.c src/scanner.c \
                          src/context.c src/arena.c src/lang.c $(CMARK_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(TEST_DIR)/test_linker: $(TEST_DIR)/test_linker.c src/linker.c src/parser.c src/scanner.c \
+$(TEST_DIR)/test_linker$(EXEEXT): $(TEST_DIR)/test_linker.c src/linker.c src/parser.c src/scanner.c \
                          src/context.c src/arena.c src/lang.c $(CMARK_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(TEST_DIR)/test_config: $(TEST_DIR)/test_config.c src/config.c src/context.c \
+$(TEST_DIR)/test_config$(EXEEXT): $(TEST_DIR)/test_config.c src/config.c src/context.c \
                          src/arena.c src/toml.c
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(TEST_DIR)/test_renderer: $(TEST_DIR)/test_renderer.c src/renderer.c src/path_util.c \
+$(TEST_DIR)/test_renderer$(EXEEXT): $(TEST_DIR)/test_renderer.c src/renderer.c src/path_util.c \
                            src/template.c src/render_posts.c src/render_index.c \
                            src/render_taxonomy.c src/render_feeds.c \
                            src/linker.c src/parser.c src/scanner.c src/context.c \
                            src/arena.c src/lang.c $(CMARK_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(TEST_DIR)/test_fixture: $(TEST_DIR)/test_fixture.c src/cmd_build.c src/config.c \
+$(TEST_DIR)/test_fixture$(EXEEXT): $(TEST_DIR)/test_fixture.c src/cmd_build.c src/config.c \
                           src/toml.c src/renderer.c src/path_util.c \
                           src/template.c src/render_posts.c src/render_index.c \
                           src/render_taxonomy.c src/render_feeds.c \
                           src/linker.c src/parser.c src/scanner.c src/context.c \
                           src/arena.c src/lang.c $(CMARK_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # Run all tests (stop on first failure)
 test: $(TEST_TARGETS)
 	@echo "Running tests..."
-	@./$(TEST_DIR)/test_scanner && echo "scanner: PASS" || (echo "scanner: FAIL" && exit 1)
-	@./$(TEST_DIR)/test_parser && echo "parser: PASS" || (echo "parser: FAIL" && exit 1)
-	@./$(TEST_DIR)/test_linker && echo "linker: PASS" || (echo "linker: FAIL" && exit 1)
-	@./$(TEST_DIR)/test_config && echo "config: PASS" || (echo "config: FAIL" && exit 1)
-	@./$(TEST_DIR)/test_renderer && echo "renderer: PASS" || (echo "renderer: FAIL" && exit 1)
-	@./$(TEST_DIR)/test_fixture && echo "fixture: PASS" || (echo "fixture: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_scanner$(EXEEXT) && echo "scanner: PASS" || (echo "scanner: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_parser$(EXEEXT) && echo "parser: PASS" || (echo "parser: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_linker$(EXEEXT) && echo "linker: PASS" || (echo "linker: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_config$(EXEEXT) && echo "config: PASS" || (echo "config: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_renderer$(EXEEXT) && echo "renderer: PASS" || (echo "renderer: FAIL" && exit 1)
+	@./$(TEST_DIR)/test_fixture$(EXEEXT) && echo "fixture: PASS" || (echo "fixture: FAIL" && exit 1)
+
+# Reproduce the clean build and test sequence used by CI.
+ci:
+	$(MAKE) clean
+	$(MAKE) all
+	$(MAKE) test
 
 # Clean build artifacts (only build files, preserve public/)
 clean:
 	-$(RM) $(OBJS) $(DEPS) $(TARGET)
-	-$(RM) $(TEST_DIR)/test_scanner $(TEST_DIR)/test_parser $(TEST_DIR)/test_linker
-	-$(RM) $(TEST_DIR)/test_config $(TEST_DIR)/test_renderer $(TEST_DIR)/test_fixture
+	-$(RM) $(TEST_TARGETS)
 	-$(RM) src/cmark/*.o src/cmark/*.d
 
 # Deep clean including generated site
@@ -144,11 +156,11 @@ check:
 		--suppress=unusedFunction --suppress=toomanyconfigs \
 		-I include src/ tests/ 2>/dev/null || echo "cppcheck: not installed (run 'brew install cppcheck' or 'apt-get install cppcheck')"
 	@echo "Running scan-build..."
-	@scan-build $(CC) $(CFLAGS) $(INCLUDES) -c src/main.c -o /dev/null 2>/dev/null || echo "scan-build: not installed (run 'brew install llvm')"
+	@scan-build $(CC) $(CPPFLAGS) $(CFLAGS) -c src/main.c -o /dev/null 2>/dev/null || echo "scan-build: not installed (run 'brew install llvm')"
 
 # Build and serve locally for development
 dev: $(TARGET)
 	@./$(TARGET) build && ./$(TARGET) serve
 
 # Phony targets
-.PHONY: all test clean distclean install uninstall check dev
+.PHONY: all test ci clean distclean install uninstall check dev

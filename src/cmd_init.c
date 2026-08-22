@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <errno.h>
 #include <time.h>
 #include "../include/platform.h"
@@ -452,7 +451,7 @@ int cmd_init(const char* dir)
             fprintf(stderr, "Error: Cannot create directory %s\n", dir);
             return CXO_ERR_IO;
         }
-        if (chdir(dir) != 0) {
+        if (cxo_chdir(dir) != 0) {
             fprintf(stderr, "Error: Cannot enter directory %s\n", dir);
             return CXO_ERR_IO;
         }
