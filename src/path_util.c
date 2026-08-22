@@ -9,7 +9,6 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <dirent.h>
-#include <unistd.h>
 #include "renderer_internal.h"
 
 /* Read file into arena */
@@ -242,4 +241,3 @@ char* cxo_entry_url(arena_t* arena, const cxo_entry_t* entry)
     }
     return url;
 }
-

@@ -96,7 +96,7 @@ static const char* get_mime_type(const char* path)
     }
     
     for (i = 0; mime_types[i].ext; i++) {
-        if (strcasecmp(dot, mime_types[i].ext) == 0) {
+        if (cxo_strcasecmp(dot, mime_types[i].ext) == 0) {
             return mime_types[i].mime;
         }
     }
@@ -238,22 +238,22 @@ static void send_file_response_full(int client, const char* path, int is_head)
     char date[64];
     const char* mime;
     
-    fd = open(path, O_RDONLY);
+    fd = cxo_open(path, O_RDONLY);
     if (fd < 0) {
         send_response(client, 404, "Not Found", "text/html",
                       "<h1>404 Not Found</h1>", 22);
         return;
     }
     
-    if (fstat(fd, &st) < 0) {
-        close(fd);
+    if (cxo_fstat(fd, &st) < 0) {
+        cxo_close_file(fd);
         send_response(client, 500, "Internal Server Error", "text/html",
                       "<h1>500 Internal Server Error</h1>", 33);
         return;
     }
     
     if (S_ISDIR(st.st_mode)) {
-        close(fd);
+        cxo_close_file(fd);
         send_response(client, 403, "Forbidden", "text/html",
                       "<h1>403 Forbidden</h1>", 22);
         return;
@@ -278,30 +278,30 @@ static void send_file_response_full(int client, const char* path, int is_head)
     while (total < strlen(header)) {
         sent = send(client, header + total, strlen(header) - total, 0);
         if (sent <= 0) {
-            close(fd);
+            cxo_close_file(fd);
             return;
         }
         total += sent;
     }
     
     if (is_head) {
-        close(fd);
+        cxo_close_file(fd);
         return;
     }
     
-    while ((n = read(fd, buf, sizeof(buf))) > 0) {
+    while ((n = cxo_read(fd, buf, sizeof(buf))) > 0) {
         total = 0;
         while (total < (size_t)n) {
             sent = send(client, buf + total, n - total, 0);
             if (sent <= 0) {
-                close(fd);
+                cxo_close_file(fd);
                 return;
             }
             total += sent;
         }
     }
     
-    close(fd);
+    cxo_close_file(fd);
 }
 
 #define send_file_response(client, path) \

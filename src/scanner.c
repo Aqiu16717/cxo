@@ -8,7 +8,6 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <errno.h>
 #include "../include/platform.h"
 #include "../include/cxo.h"

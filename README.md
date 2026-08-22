@@ -1,5 +1,7 @@
 # CXO
 
+[![CI](https://github.com/Aqiu16717/cxo/actions/workflows/ci.yml/badge.svg)](https://github.com/Aqiu16717/cxo/actions/workflows/ci.yml)
+
 A minimalist, high-performance static blog engine written in pure C (C11).
 
 - **Zero dependencies** — everything is embedded
@@ -11,10 +13,15 @@ A minimalist, high-performance static blog engine written in pure C (C11).
 ```bash
 make        # Build cxo executable
 make test   # Run all tests
+make ci     # Clean build and run all tests, as CI does
 make clean  # Clean build artifacts
 ```
 
 Requires a C11 compiler (clang or gcc) and GNU Make.
+
+Every push and pull request is verified on Linux with GCC and Clang, macOS
+with Clang, and Windows with MSYS2 MinGW-w64 UCRT64. Each job performs a clean
+build, runs the complete test suite, and exercises the main CLI entry points.
 
 ## Quick Start
 

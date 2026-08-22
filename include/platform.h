@@ -13,13 +13,20 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <direct.h>
+#include <fcntl.h>
 #include <io.h>
 #include <process.h>
+#include <sys/stat.h>
 
 /* Directory creation */
 #define cxo_mkdir(path) _mkdir(path)
+#define cxo_chdir(path) _chdir(path)
+#define cxo_rmdir(path) _rmdir(path)
+#define cxo_getpid() _getpid()
 
 /* File access */
 #define cxo_access(path, mode) _access((path), (mode))
@@ -42,9 +49,6 @@
 #endif
 
 /* Socket abstractions */
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
 typedef SOCKET cxo_socket_t;
 typedef int cxo_socklen_t;
 typedef int cxo_ssize_t;
@@ -68,16 +72,28 @@ typedef int cxo_ssize_t;
 #define cxo_popen(cmd, mode) _popen((cmd), (mode))
 #define cxo_pclose(stream) _pclose(stream)
 
+/* C runtime compatibility */
+#define cxo_open(path, flags) _open((path), (flags))
+#define cxo_read(fd, buf, size) _read((fd), (buf), (unsigned int)(size))
+#define cxo_close_file(fd) _close(fd)
+#define cxo_fstat(fd, st) _fstat((fd), (st))
+#define cxo_strcasecmp(a, b) _stricmp((a), (b))
+
 #else /* POSIX */
 
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
 #define cxo_mkdir(path) mkdir((path), 0755)
+#define cxo_chdir(path) chdir(path)
+#define cxo_rmdir(path) rmdir(path)
+#define cxo_getpid() getpid()
 #define cxo_access(path, mode) access((path), (mode))
 
 typedef int cxo_socket_t;
@@ -99,6 +115,12 @@ typedef ssize_t cxo_ssize_t;
 
 #define cxo_popen(cmd, mode) popen((cmd), (mode))
 #define cxo_pclose(stream) pclose(stream)
+
+#define cxo_open(path, flags) open((path), (flags))
+#define cxo_read(fd, buf, size) read((fd), (buf), (size))
+#define cxo_close_file(fd) close(fd)
+#define cxo_fstat(fd, st) fstat((fd), (st))
+#define cxo_strcasecmp(a, b) strcasecmp((a), (b))
 
 static inline int cxo_posix_spawnvp(const char* file, char* const argv[])
 {

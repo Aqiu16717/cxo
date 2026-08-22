@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 
 int main(void)
 {
@@ -287,7 +286,7 @@ int main(void)
     
     /* Cleanup test static asset */
     remove("static/test_asset.txt");
-    rmdir("static");
+    cxo_rmdir("static");
     remove("public/test_asset.txt");
     
     arena_destroy(arena);

@@ -15,11 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
 #include <dirent.h>
-#ifdef _WIN32
-#include <process.h>
-#endif
 #include "../include/cxo.h"
 #include "../src/renderer_internal.h"
 
@@ -107,17 +103,13 @@ static void rm_tree(const char* path)
         rm_tree(child);
     }
     closedir(dir);
-    rmdir(path);
+    cxo_rmdir(path);
 }
 
 /* Copy fixtures into a fresh per-process work dir and chdir into it */
 static int setup_workspace(char* work_dir, size_t size)
 {
-#ifdef _WIN32
-    int pid = _getpid();
-#else
-    int pid = getpid();
-#endif
+    int pid = cxo_getpid();
 
     snprintf(work_dir, size, "tests/.fixture_work_%d", pid);
     rm_tree(work_dir);
@@ -128,7 +120,7 @@ static int setup_workspace(char* work_dir, size_t size)
         rm_tree(work_dir);
         return -1;
     }
-    return chdir(work_dir);
+    return cxo_chdir(work_dir);
 }
 
 int main(void)
@@ -220,7 +212,7 @@ int main(void)
           "hotreload script injected with CXO_HOTRELOAD=1");
 
     /* Cleanup */
-    if (chdir("../..") == 0) {
+    if (cxo_chdir("../..") == 0) {
         rm_tree(work_dir);
     }
     arena_destroy(g_arena);
